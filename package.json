@@ -1,0 +1,11 @@
+{
+  "name": "warera-eco-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/main.js && node --check src/config/constants.js && node --check src/core/math.js && node --check src/core/simulation.js && node --check src/core/optimizer.js && node --check src/state/company-state.js && node --check src/ui/editor.js && node --check src/ui/events.js && node --check src/ui/results.js",
+    "test": "node --test",
+    "lint": "npm run check"
+  }
+}

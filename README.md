@@ -35,6 +35,44 @@ python3 -m http.server 8080
 
 Open: `http://<server-ip>:8080`
 
+## Development checks
+
+This repository now includes a small, dependency-free Node workflow for quality checks.
+
+```bash
+npm run check   # syntax checks for modular source files
+npm test        # core simulation/optimizer tests (node:test)
+```
+
+No build step is required. The app runs directly in the browser via ES modules.
+
+## Code structure
+
+The codebase is split by responsibility:
+
+- `src/config/constants.js`
+  - Central game constants, material catalog, objective definitions, storage keys, and API URL.
+- `src/core/math.js`
+  - Shared formatting and numeric helper utilities.
+- `src/core/simulation.js`
+  - Pure economy logic: skill math, company/worker flow, entrepreneurship plan handling, production graph simulation.
+- `src/core/optimizer.js`
+  - Pure optimization logic for skill allocation and entrepreneurship plan search.
+- `src/state/company-state.js`
+  - Mutable company/session state container (companies, workers, and entrepreneurship slot state) with sanitization and defaults.
+- `src/ui/editor.js`
+  - Company editor, entrepreneurship plan editor, and material input rendering.
+- `src/ui/events.js`
+  - DOM event wiring and user-action handlers.
+- `src/ui/results.js`
+  - Results dashboard rendering and warning/summary presentation.
+- `src/main.js`
+  - Thin orchestration layer for snapshot persistence, compare scenarios, optimization actions, and module composition.
+- `tests/simulation.test.mjs`
+  - Baseline regression tests for core simulation/optimizer behavior.
+
+`app.js` is kept as a lightweight compatibility shim and forwards to `src/main.js`.
+
 ## Simulator coverage
 
 - Skill allocation across:
@@ -126,5 +164,6 @@ These assumptions are implemented:
 
 ## Notes
 
-- Optimizer runs exact search when feasible and falls back to hill-climb for very large search spaces.
+- Skill optimization exhaustively scans `Energy`, `Entrepreneurship`, and `Production` while keeping `Companies` and `Management` fixed to your chosen levels.
+- Entrepreneurship plan optimization uses exact discrete search in plan-only mode and a fast heuristic during combined skill+plan optimization.
 - State persists in browser local storage.
