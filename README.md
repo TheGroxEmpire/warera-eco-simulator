@@ -21,11 +21,11 @@ docker compose up -d --build
 Current `docker-compose.yml` is configured for Traefik (`proxy` network + labels).
 
 1. Point DNS to your server, for example:
-   - `warera.xorgress.com -> <your-server-public-ip>`
+   - `warera.yourdomain.com -> <your-server-public-ip>`
 2. (Optional) Override hostname:
-   - `WARERA_HOST=warera.xorgress.com docker compose up -d --build`
+   - `WARERA_HOST=warera.yourdomain.com docker compose up -d --build`
 3. Open:
-   - `https://warera.xorgress.com/eco-simulator/`
+   - `https://warera.yourdomain.com/eco-simulator/`
 
 ### Option B: No Docker
 
