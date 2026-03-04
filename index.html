@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WarEra Economy Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css?v=20260304-01">
+</head>
+<body>
+  <main class="app">
+    <header class="hero">
+      <h1>WarEra Economy Skill Simulator</h1>
+      <p>Simple tool for PP flow, material output, and profit optimization.</p>
+      <p class="credit">Created by GroxEmpire</p>
+    </header>
+
+    <section class="panel">
+      <h2>1. Skill Allocation</h2>
+      <div class="grid skill-grid">
+        <label>
+          Player Level
+          <input id="level" type="number" min="1" step="1" value="20">
+        </label>
+        <label>
+          Energy Skill Level
+          <input id="alloc-energy" type="number" min="0" max="10" step="1" value="0">
+        </label>
+        <label>
+          Entrepreneurship Skill Level
+          <input id="alloc-entrepreneurship" type="number" min="0" max="10" step="1" value="0">
+        </label>
+        <label>
+          Production Skill Level
+          <input id="alloc-production" type="number" min="0" max="10" step="1" value="0">
+        </label>
+        <label>
+          Companies Limit Skill Level
+          <input id="alloc-companies" type="number" min="0" max="10" step="1" value="0">
+        </label>
+        <label>
+          Management Skill Level
+          <input id="alloc-management" type="number" min="0" max="10" step="1" value="0">
+        </label>
+      </div>
+      <p class="hint">Skill level cost is progressive: level 1 costs 1 point, level 2 costs 2 more, level N costs N more. Total cost for level N is 1+2+...+N.</p>
+      <p class="hint">Per-level gains: Energy +10, Entrepreneurship +5, Production +3, Companies +1, Management +2. Max level per skill: 10.</p>
+      <p id="points-summary" class="mono"></p>
+      <p id="allocation-warning" class="warning hidden"></p>
+    </section>
+
+    <section class="panel">
+      <h2>2. Operation Settings</h2>
+      <div class="grid settings-grid">
+        <label>
+          Work Energy Usage (%)
+          <input id="work-usage" type="number" min="0" max="100" step="1" value="100">
+        </label>
+        <label>
+          Entrepreneurship Usage (%)
+          <input id="entre-usage" type="number" min="0" max="100" step="1" value="100">
+        </label>
+        <label>
+          Company PP Utilization (%)
+          <input id="company-utilization" type="number" min="0" max="100" step="1" value="100">
+        </label>
+        <label>
+          Your Work Wage / PP
+          <input id="own-wage" type="number" min="0" step="0.01" value="0.13">
+        </label>
+      </div>
+      <p class="hint">Set general usage % here. Entrepreneurship action planning is configured in the Entrepreneurship Plan section.</p>
+    </section>
+
+    <section class="panel">
+      <h2>3. Company Setup</h2>
+      <p class="hint">Each company has its own specialization, AE level, workers, worker energy/production, worker wage, production bonus, and worker fidelity.</p>
+      <p id="company-summary" class="mono"></p>
+      <p id="company-warning" class="warning hidden"></p>
+      <div id="companies-editor" class="companies-editor"></div>
+      <div class="company-actions">
+        <button id="company-add-btn" type="button">+ Add Company</button>
+        <button id="company-remove-btn" type="button" class="secondary-btn">- Remove Last</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>4. Entrepreneurship Plan</h2>
+      <p class="hint">Plan self-work actions per 10h cycle by assigning each action slot to a company. Each action costs 10 Entrepreneurship. Optimizer can optimize this plan for you.</p>
+      <p id="entre-plan-summary" class="mono"></p>
+      <p id="entre-plan-warning" class="warning hidden"></p>
+      <div id="entre-plan-editor" class="entre-plan-editor"></div>
+    </section>
+
+    <section class="panel">
+      <h2>5. Price Inputs</h2>
+      <div class="grid control-grid">
+        <button id="sync-prices-btn" type="button" class="secondary-btn">Sync Prices from WarEra API</button>
+      </div>
+      <p id="price-sync-status" class="hint"></p>
+      <div id="price-grid" class="price-grid"></div>
+    </section>
+
+    <section class="panel">
+      <h2>6. Optimization</h2>
+      <p class="hint">Choose what optimizer should change: skill allocation, entrepreneurship plan, or both.</p>
+      <div class="grid control-grid">
+        <label>
+          Optimize For
+          <select id="objective">
+            <option value="netProfitDay">Net Profit / Day</option>
+            <option value="totalPPDay">Total PP / Day</option>
+            <option value="companyPPDay">Company PP / Day</option>
+            <option value="unitsDay">Produced Units / Day</option>
+            <option value="workIncomeDay">Work Wage Income / Day</option>
+          </select>
+        </label>
+        <div class="optimize-flags">
+          <label class="checkbox-line">
+            <input id="optimize-skill-toggle" type="checkbox" checked>
+            <span>Optimize Skill Allocation</span>
+          </label>
+          <label class="checkbox-line">
+            <input id="optimize-entre-plan-toggle" type="checkbox">
+            <span>Optimize Entrepreneurship Plan</span>
+          </label>
+        </div>
+        <button id="optimize-btn" type="button">Find Best Allocation</button>
+      </div>
+      <p id="optimizer-status" class="hint"></p>
+    </section>
+
+    <section class="panel">
+      <h2>7. Results</h2>
+      <div class="reference-controls">
+        <button id="compare-switch-btn" type="button" class="secondary-btn">Switch to Scenario B</button>
+      </div>
+      <p id="reference-status" class="hint">Scenario A is active and auto-saved on every change.</p>
+      <p id="caps-warning" class="warning hidden"></p>
+      <div id="result-grid" class="result-grid"></div>
+    </section>
+  </main>
+  <script src="./app.js?v=20260303-11"></script>
+</body>
+</html>
