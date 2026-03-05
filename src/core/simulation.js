@@ -397,6 +397,7 @@ export function simulate(alloc, config) {
 
   for (const company of activeCompanies) {
     companyCountActiveByMaterial[company.specialization] += 1;
+    const companyProductionBonusMultiplier = bonusMultiplier(company.productionBonusPct);
 
     const companyWorkers = Array.isArray(company.workers) ? company.workers : [];
     const activeWorkerCount = Math.min(companyWorkers.length, Math.max(0, managementRemaining));
@@ -410,7 +411,7 @@ export function simulate(alloc, config) {
     const manualActionsEffectivePer10h = entrepreneurshipPlan.effectiveByCompanyId[company.id] || 0;
     const manualActionsPerDay = manualActionsEffectivePer10h * CYCLES_PER_DAY * config.entreUsagePct;
     const manualBasePPDay = manualActionsPerDay * stats.production;
-    const manualPPDay = manualBasePPDay * bonusMultiplier(company.productionBonusPct);
+    const manualPPDay = manualBasePPDay * companyProductionBonusMultiplier;
 
     let workerRawPPDay = 0;
     let workerPPDay = 0;
@@ -420,11 +421,11 @@ export function simulate(alloc, config) {
       const rawPPDay = actionsPerDay * worker.productionPerAction;
       workerRawPPDay += rawPPDay;
       workerPPDay += rawPPDay
-        * bonusMultiplier(company.productionBonusPct)
+        * companyProductionBonusMultiplier
         * fidelityMultiplier(worker.fidelityPct);
     }
 
-    const aePPDay = AE_RATES[company.aeLevel] || 0;
+    const aePPDay = (AE_RATES[company.aeLevel] || 0) * companyProductionBonusMultiplier;
     const ppBudgetDay = (manualPPDay + aePPDay + workerPPDay) * config.companyUtilizationPct;
     companyPPByMaterial[company.specialization] += ppBudgetDay;
 

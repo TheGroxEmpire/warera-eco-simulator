@@ -83,11 +83,15 @@ export function createEditorUI({
       return;
     }
 
+    const config = getConfigFromInputs();
+    const alloc = getAllocationsFromInputs();
+    const activeCompanyIds = new Set(getActiveCompaniesForAlloc(alloc, config).map((company) => company.id));
     const companyConfigsState = getCompanyConfigsMutable();
 
     editorEl.innerHTML = companyConfigsState.map((company, index) => {
       const material = MATERIAL_MAP.get(company.specialization) || MATERIALS[0];
       const workers = Array.isArray(company.workers) ? company.workers : [];
+      const isActive = activeCompanyIds.has(company.id);
 
       const workersMarkup = workers.length === 0
         ? `<p class="hint worker-empty">No workers added yet.</p>`
@@ -113,7 +117,10 @@ export function createEditorUI({
       return `
         <article class="company-card" data-company-id="${company.id}">
           <div class="company-head">
-            <h3>Company ${index + 1}</h3>
+            <div class="company-head-title">
+              <h3>Company ${index + 1}</h3>
+              <p class="company-status ${isActive ? "company-status-active" : "company-status-inactive"}">${isActive ? "Active" : "Inactive (over company limit)"}</p>
+            </div>
             <button type="button" class="inline-btn" data-action="remove-company" data-company-id="${company.id}">Remove</button>
           </div>
           <label>

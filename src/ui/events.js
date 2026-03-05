@@ -98,57 +98,84 @@ export function bindEvents({
     }
   });
 
-  companiesEditorEl.addEventListener("change", (event) => {
-    const changed = event.target.closest("[data-action='set-wage'], [data-action='set-ae'], [data-action='set-specialization'], [data-action='set-company-bonus'], [data-action='set-worker-fidelity'], [data-action='set-worker-energy'], [data-action='set-worker-production']");
-    if (!changed) {
-      return;
-    }
-
+  const companyNumericSelector = "[data-action='set-wage'], [data-action='set-company-bonus'], [data-action='set-worker-fidelity'], [data-action='set-worker-energy'], [data-action='set-worker-production']";
+  const applyCompanyNumericChange = (changed) => {
     const companyId = Number(changed.dataset.companyId);
     const companyConfigsState = getCompanyConfigsMutable();
     const idx = companyConfigsState.findIndex((company) => company.id === companyId);
     if (idx < 0) {
-      return;
+      return false;
     }
 
     const company = companyConfigsState[idx];
     const workerIndex = Math.max(0, Math.floor(Number(changed.dataset.workerIndex) || 0));
-    const workerActions = ["set-worker-fidelity", "set-worker-energy", "set-worker-production"];
 
     if (changed.dataset.action === "set-wage") {
       company.wagePerPP = Math.max(0, Number(changed.value) || 0);
-    } else if (changed.dataset.action === "set-ae") {
-      company.aeLevel = clamp(Math.floor(Number(changed.value) || 1), 1, 7);
-    } else if (changed.dataset.action === "set-specialization") {
-      company.specialization = MATERIAL_MAP.has(changed.value) ? changed.value : company.specialization;
     } else if (changed.dataset.action === "set-company-bonus") {
       company.productionBonusPct = Math.max(0, Number(changed.value) || 0);
     } else if (changed.dataset.action === "set-worker-fidelity") {
       if (!Array.isArray(company.workers) || !company.workers[workerIndex]) {
-        return;
+        return false;
       }
       company.workers[workerIndex].fidelityPct = clamp(Number(changed.value) || 0, 0, 10);
     } else if (changed.dataset.action === "set-worker-energy") {
       if (!Array.isArray(company.workers) || !company.workers[workerIndex]) {
-        return;
+        return false;
       }
       company.workers[workerIndex].energyPer10h = Math.max(0, Number(changed.value) || 0);
     } else if (changed.dataset.action === "set-worker-production") {
       if (!Array.isArray(company.workers) || !company.workers[workerIndex]) {
-        return;
+        return false;
       }
       company.workers[workerIndex].productionPerAction = Math.max(0, Number(changed.value) || 0);
     }
 
-    if (
-      changed.dataset.action === "set-specialization"
-      || changed.dataset.action === "set-company-bonus"
-      || workerActions.includes(changed.dataset.action)
-    ) {
-      renderCompanyEditor();
+    return true;
+  };
+
+  companiesEditorEl.addEventListener("change", (event) => {
+    const selectChanged = event.target.closest("[data-action='set-ae'], [data-action='set-specialization']");
+    if (selectChanged) {
+      const companyId = Number(selectChanged.dataset.companyId);
+      const companyConfigsState = getCompanyConfigsMutable();
+      const idx = companyConfigsState.findIndex((company) => company.id === companyId);
+      if (idx < 0) {
+        return;
+      }
+
+      const company = companyConfigsState[idx];
+      if (selectChanged.dataset.action === "set-ae") {
+        company.aeLevel = clamp(Math.floor(Number(selectChanged.value) || 1), 1, 7);
+      } else if (selectChanged.dataset.action === "set-specialization") {
+        company.specialization = MATERIAL_MAP.has(selectChanged.value) ? selectChanged.value : company.specialization;
+      }
+
+      if (selectChanged.dataset.action === "set-specialization") {
+        renderCompanyEditor();
+      }
+
+      rerenderFromCurrentState();
+      return;
     }
 
-    rerenderFromCurrentState();
+    const numericChanged = event.target.closest(companyNumericSelector);
+    if (!numericChanged) {
+      return;
+    }
+    if (applyCompanyNumericChange(numericChanged)) {
+      rerenderFromCurrentState();
+    }
+  });
+
+  companiesEditorEl.addEventListener("input", (event) => {
+    const changed = event.target.closest(companyNumericSelector);
+    if (!changed) {
+      return;
+    }
+    if (applyCompanyNumericChange(changed)) {
+      rerenderFromCurrentState();
+    }
   });
 
   const planEditorEl = document.getElementById("entre-plan-editor");

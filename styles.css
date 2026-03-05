@@ -233,9 +233,29 @@ button:hover {
   gap: 0.45rem;
 }
 
+.company-head-title {
+  display: grid;
+  gap: 0.12rem;
+}
+
 .company-head h3 {
   margin: 0;
   font-size: 0.94rem;
+}
+
+.company-status {
+  margin: 0;
+  font-size: 0.71rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.company-status-active {
+  color: #1c8d47;
+}
+
+.company-status-inactive {
+  color: var(--warn);
 }
 
 .inline-btn {
