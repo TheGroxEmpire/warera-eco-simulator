@@ -1,4 +1,4 @@
-import { MATERIAL_MAP } from "../config/constants.js?v=20260330-08";
+import { MATERIAL_MAP } from "../config/constants.js?v=20260330-09";
 
 const WARERA_API_REMOTE_BASE_URL = "https://api2.warera.io/trpc";
 const DIRECT_USER_ID_PATTERN = /^[a-f0-9]{24}$/i;

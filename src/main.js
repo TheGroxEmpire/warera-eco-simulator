@@ -8,7 +8,7 @@ import {
   OBJECTIVES,
   PRICE_API_URL,
   STORAGE_KEY,
-} from "./config/constants.js?v=20260330-08";
+} from "./config/constants.js?v=20260330-09";
 import {
   buildEntrePlanSlotsFromPlan,
   getActiveCompaniesForAlloc,
@@ -16,25 +16,26 @@ import {
   getStatsForAlloc,
   sanitizeEntrePlanSlots,
   simulate,
-} from "./core/simulation.js?v=20260330-08";
-import { fmt } from "./core/math.js?v=20260330-08";
-import { optimizeAllocationAndPlan } from "./core/optimizer.js?v=20260330-08";
-import { importWareraUserData } from "./integrations/warera-import.js?v=20260330-08";
+} from "./core/simulation.js?v=20260330-09";
+import { fmt } from "./core/math.js?v=20260330-09";
+import { optimizeAllocationAndPlan } from "./core/optimizer.js?v=20260330-09";
+import { importWareraUserData } from "./integrations/warera-import.js?v=20260330-09";
 import {
   copySnapshotToOtherCompareSlot,
   getOtherCompareSlot,
   getPriceSyncSummary,
   updateCompareSlotsWithPrices,
-} from "./state/compare-state.js?v=20260330-08";
-import { createCompanyState } from "./state/company-state.js?v=20260330-08";
-import { createEditorUI } from "./ui/editor.js?v=20260330-08";
-import { bindEvents as bindUiEvents } from "./ui/events.js?v=20260330-08";
-import { createResultsRenderer } from "./ui/results.js?v=20260330-08";
+} from "./state/compare-state.js?v=20260330-09";
+import { createCompanyState } from "./state/company-state.js?v=20260330-09";
+import { createEditorUI } from "./ui/editor.js?v=20260330-09";
+import { bindEvents as bindUiEvents } from "./ui/events.js?v=20260330-09";
+import { createResultsRenderer } from "./ui/results.js?v=20260330-09";
 
 let compareState = {
   active: "A",
   slots: { A: null, B: null },
 };
+let importedScenarioMeta = null;
 const companyState = createCompanyState();
 const {
   createDefaultWorkerConfig,
@@ -114,6 +115,50 @@ function getConfigFromInputs() {
   };
 }
 
+function normalizeImportedScenarioMeta(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const user = raw.user && typeof raw.user === "object" ? raw.user : {};
+  const summary = raw.summary && typeof raw.summary === "object" ? raw.summary : {};
+  const userId = String(user.id || "").trim();
+  const username = String(user.username || "").trim();
+
+  if (!userId && !username) {
+    return null;
+  }
+
+  return {
+    searchText: String(raw.searchText || "").trim(),
+    statusMessage: typeof raw.statusMessage === "string" ? raw.statusMessage : "",
+    statusTone: raw.statusTone === "success" || raw.statusTone === "error" ? raw.statusTone : "default",
+    level: Math.max(1, Math.floor(Number(raw.level) || 1)),
+    user: {
+      id: userId,
+      username: username || "Unknown User",
+      avatarUrl: typeof user.avatarUrl === "string" ? user.avatarUrl : "",
+    },
+    summary: {
+      companiesFound: Math.max(0, Math.floor(Number(summary.companiesFound) || 0)),
+      companiesImported: Math.max(0, Math.floor(Number(summary.companiesImported) || 0)),
+      companiesSkipped: Math.max(0, Math.floor(Number(summary.companiesSkipped) || 0)),
+      workersImported: Math.max(0, Math.floor(Number(summary.workersImported) || 0)),
+      workerProfilesMissing: Math.max(0, Math.floor(Number(summary.workerProfilesMissing) || 0)),
+      matchedBy: summary.matchedBy === "userId" ? "userId" : "search",
+      exactUsernameMatch: summary.exactUsernameMatch === true,
+      searchCandidateCount: Math.max(0, Math.floor(Number(summary.searchCandidateCount) || 0)),
+    },
+    warnings: Array.isArray(raw.warnings)
+      ? raw.warnings.map((warning) => String(warning || "").trim()).filter(Boolean)
+      : [],
+  };
+}
+
+function getImportedScenarioMetaSnapshot() {
+  return importedScenarioMeta ? structuredClone(importedScenarioMeta) : null;
+}
+
 function normalizeSnapshot(raw) {
   if (!raw || typeof raw !== "object") return null;
   const config = raw.config || {};
@@ -161,6 +206,7 @@ function normalizeSnapshot(raw) {
     prices: normalizedPrices,
     companyConfigs,
     hasCompanyConfigs,
+    importMeta: normalizeImportedScenarioMeta(raw.importMeta),
   };
 }
 
@@ -181,6 +227,7 @@ function captureSnapshotFromInputs() {
     alloc: getAllocationsFromInputs(),
     prices: getPrices(),
     companyConfigs: getCompanyConfigs(),
+    importMeta: getImportedScenarioMetaSnapshot(),
   });
 }
 
@@ -244,6 +291,7 @@ function applySnapshotToInputs(snapshot, shouldRerender = true) {
     setValue(`price-${material.id}`, normalized.prices[material.id]);
   }
   setCompanyConfigs(normalized.companyConfigs, {}, { allowEmpty: normalized.hasCompanyConfigs === true });
+  applyImportedScenarioMeta(normalized.importMeta);
   renderCompanyEditor();
   if (shouldRerender) {
     rerenderFromCurrentState();
@@ -493,6 +541,16 @@ function setUserImportStatus(message, tone = "default") {
   }
 }
 
+function clearUserImportStatus() {
+  const statusEl = document.getElementById("user-import-status");
+  if (!statusEl) {
+    return;
+  }
+
+  statusEl.textContent = "";
+  statusEl.className = "status-banner hidden";
+}
+
 function clearUserImportSummary() {
   const summaryEl = document.getElementById("user-import-summary");
   if (!summaryEl) {
@@ -501,6 +559,29 @@ function clearUserImportSummary() {
 
   summaryEl.replaceChildren();
   summaryEl.classList.add("hidden");
+}
+
+function applyImportedScenarioMeta(meta) {
+  importedScenarioMeta = normalizeImportedScenarioMeta(meta);
+
+  const searchInput = document.getElementById("user-search");
+  if (searchInput) {
+    searchInput.value = importedScenarioMeta?.searchText || "";
+  }
+
+  if (!importedScenarioMeta) {
+    clearUserImportStatus();
+    clearUserImportSummary();
+    return;
+  }
+
+  if (importedScenarioMeta.statusMessage) {
+    setUserImportStatus(importedScenarioMeta.statusMessage, importedScenarioMeta.statusTone);
+  } else {
+    clearUserImportStatus();
+  }
+
+  renderUserImportSummary(importedScenarioMeta);
 }
 
 function renderUserImportSummary(imported) {
@@ -567,14 +648,12 @@ async function importUserFromApi() {
 
   try {
     const imported = await importWareraUserData(searchInput.value);
+    const successMessagePrefix = `Imported ${imported.user.username}. Skills, level, companies, worker stats, company production bonuses from country, region, and ruling party data, and company wages were refreshed. Your own wage stays manual.`;
 
     document.getElementById("level").value = String(imported.level);
     setAllocationsToInputs(imported.alloc);
     setCompanyConfigs(imported.companyConfigs, {}, { allowEmpty: true });
     setEntrePlanSlotsState([]);
-    renderUserImportSummary(imported);
-    renderCompanyEditor();
-    rerenderFromCurrentState();
 
     const searchNote = imported.summary.matchedBy === "search" && imported.summary.searchCandidateCount > 1 && !imported.summary.exactUsernameMatch
       ? ` Selected the first of ${imported.summary.searchCandidateCount} search matches.`
@@ -585,13 +664,24 @@ async function importUserFromApi() {
     const workerFallbackNote = imported.summary.workerProfilesMissing > 0
       ? ` ${imported.summary.workerProfilesMissing} ${pluralize(imported.summary.workerProfilesMissing, "worker profile")} used default energy/production values.`
       : "";
+    const successMessage = `${successMessagePrefix}${searchNote}${skippedNote}${workerFallbackNote}`;
+
+    applyImportedScenarioMeta({
+      ...imported,
+      searchText: searchInput.value,
+      statusMessage: successMessage,
+      statusTone: "success",
+    });
+    renderCompanyEditor();
+    rerenderFromCurrentState();
 
     setUserImportStatus(
-      `Imported ${imported.user.username}. Skills, level, companies, worker stats, company production bonuses from country, region, and ruling party data, and company wages were refreshed. Your own wage stays manual.${searchNote}${skippedNote}${workerFallbackNote}`,
+      successMessage,
       "success",
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    importedScenarioMeta = null;
     setUserImportStatus(`User import failed: ${message}`, "error");
     clearUserImportSummary();
     console.error("User import failed:", err);
@@ -618,6 +708,7 @@ function saveState() {
     alloc: getAllocationsFromInputs(),
     prices: getPrices(),
     companyConfigs: getCompanyConfigs(),
+    importMeta: getImportedScenarioMetaSnapshot(),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
@@ -632,6 +723,7 @@ function loadState() {
     const a = parsed.alloc || {};
     const p = parsed.prices || {};
     const savedCompanyConfigs = parsed.companyConfigs;
+    const savedImportMeta = normalizeImportedScenarioMeta(parsed.importMeta);
 
     const maybeSet = (id, value) => {
       if (value === undefined || value === null) return;
@@ -708,10 +800,13 @@ function loadState() {
       while (derivedSlots.length < capNow) derivedSlots.push(null);
       setEntrePlanSlotsState(derivedSlots);
     }
+
+    applyImportedScenarioMeta(savedImportMeta);
   } catch (err) {
     console.error("Failed to load saved state:", err);
     setCompanyConfigs([createDefaultCompanyConfig("iron"), createDefaultCompanyConfig("steel")]);
     setEntrePlanSlotsState([]);
+    applyImportedScenarioMeta(null);
   }
 }
 

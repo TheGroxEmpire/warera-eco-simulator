@@ -2,7 +2,7 @@ import {
   MAX_SKILL_LEVEL,
   OBJECTIVES,
   OPTIMIZED_SKILL_KEYS,
-} from "../config/constants.js?v=20260330-08";
+} from "../config/constants.js?v=20260330-09";
 import {
   getActiveCompaniesForAlloc,
   getStatsForAlloc,
@@ -10,7 +10,7 @@ import {
   objectiveScore,
   scoreEntreActionForCompany,
   simulate,
-} from "./simulation.js?v=20260330-08";
+} from "./simulation.js?v=20260330-09";
 
 export function exactOptimizeEntrePlanForAlloc(alloc, config) {
   const stats = getStatsForAlloc(alloc);

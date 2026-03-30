@@ -1,5 +1,5 @@
-import { MATERIAL_MAP, MATERIALS } from "../config/constants.js?v=20260330-08";
-import { sanitizeEntrePlanSlots } from "../core/simulation.js?v=20260330-08";
+import { MATERIAL_MAP, MATERIALS } from "../config/constants.js?v=20260330-09";
+import { sanitizeEntrePlanSlots } from "../core/simulation.js?v=20260330-09";
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));

@@ -1,5 +1,5 @@
-import { AE_RATES, MATERIAL_MAP, MATERIALS } from "../config/constants.js?v=20260330-08";
-import { getActiveCompaniesForAlloc, getItemImagePath, getStatsForAlloc } from "../core/simulation.js?v=20260330-08";
+import { AE_RATES, MATERIAL_MAP, MATERIALS } from "../config/constants.js?v=20260330-09";
+import { getActiveCompaniesForAlloc, getItemImagePath, getStatsForAlloc } from "../core/simulation.js?v=20260330-09";
 
 export function createEditorUI({
   getConfigFromInputs,

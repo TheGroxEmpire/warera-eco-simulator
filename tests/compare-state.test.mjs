@@ -20,6 +20,10 @@ test("copySnapshotToOtherCompareSlot copies active scenario into the other slot"
     savedAt: "2026-03-30T10:00:00.000Z",
     prices: { iron: 1.2 },
     config: { level: 21 },
+    importMeta: {
+      user: { id: "user-a", username: "User A" },
+      searchText: "user-a",
+    },
   };
   const compareState = {
     active: "A",
@@ -43,6 +47,10 @@ test("mergePricesIntoSnapshot preserves snapshot fields and replaces prices", ()
       savedAt: "old",
       config: { level: 20 },
       prices: { iron: 1, steel: 2 },
+      importMeta: {
+        user: { id: "user-a", username: "User A" },
+        searchText: "user-a",
+      },
     },
     { steel: 2.5, oil: 0.4 },
     "new",
@@ -52,6 +60,10 @@ test("mergePricesIntoSnapshot preserves snapshot fields and replaces prices", ()
     savedAt: "new",
     config: { level: 20 },
     prices: { iron: 1, steel: 2.5, oil: 0.4 },
+    importMeta: {
+      user: { id: "user-a", username: "User A" },
+      searchText: "user-a",
+    },
   });
 });
 
