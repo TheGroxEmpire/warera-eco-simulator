@@ -1,5 +1,5 @@
-import { MATERIAL_MAP, MATERIALS } from "../config/constants.js";
-import { sanitizeEntrePlanSlots } from "../core/simulation.js";
+import { MATERIAL_MAP, MATERIALS } from "../config/constants.js?v=20260330-08";
+import { sanitizeEntrePlanSlots } from "../core/simulation.js?v=20260330-08";
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -81,14 +81,15 @@ export function createCompanyState() {
     };
   }
 
-  function setCompanyConfigs(configs, defaults = {}) {
+  function setCompanyConfigs(configs, defaults = {}, options = {}) {
+    const allowEmpty = options?.allowEmpty === true;
     const normalized = (Array.isArray(configs) ? configs : [])
       .map((raw) => sanitizeCompanyConfig(raw, defaults))
       .filter((company, idx, arr) => arr.findIndex((candidate) => candidate.id === company.id) === idx);
 
     companyConfigsState = normalized.length > 0
       ? normalized
-      : [createDefaultCompanyConfig("iron"), createDefaultCompanyConfig("steel")];
+      : (allowEmpty ? [] : [createDefaultCompanyConfig("iron"), createDefaultCompanyConfig("steel")]);
 
     const maxId = companyConfigsState.reduce((max, company) => Math.max(max, company.id), 0);
     nextCompanyId = Math.max(nextCompanyId, maxId + 1);

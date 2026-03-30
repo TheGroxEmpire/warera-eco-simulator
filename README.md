@@ -58,6 +58,8 @@ The codebase is split by responsibility:
   - Pure economy logic: skill math, company/worker flow, entrepreneurship plan handling, production graph simulation.
 - `src/core/optimizer.js`
   - Pure optimization logic for skill allocation and entrepreneurship plan search.
+- `src/integrations/warera-import.js`
+  - WarEra API integration for username/user-ID search plus live import of player skills, owned companies, workers, and wages.
 - `src/state/company-state.js`
   - Mutable company/session state container (companies, workers, and entrepreneurship slot state) with sanitization and defaults.
 - `src/ui/editor.js`
@@ -97,6 +99,12 @@ The codebase is split by responsibility:
 - Automatic internal ingredient flow (e.g., Iron -> Steel) before sale
 - Price input for each material
 - Item icons rendered from `images/items`
+- Live player import from WarEra API:
+  - Search by username or paste a user ID
+  - Pulls player level plus Energy, Entrepreneurship, Production, Companies, and Management skill levels
+  - Imports owned companies, AE levels, worker stats, worker fidelity, and inferred company wage from current workers
+  - Imports company `Production Bonus (%)` from current country specialization bonus plus any active matching region deposit and ruling-party industrialism/agrarian modifiers
+  - Keeps your personal `Work Wage / PP` input manual because the provided API payloads do not expose your current employee wage
 - Automatic price sync on page load plus manual sync button from `https://api2.warera.io/trpc/itemTrading.getPrices`
 - Output metrics:
   - PP/day and PP/hour

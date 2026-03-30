@@ -1,4 +1,4 @@
-import { MATERIAL_MAP, MATERIALS } from "../config/constants.js";
+import { MATERIAL_MAP, MATERIALS } from "../config/constants.js?v=20260330-08";
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -14,6 +14,8 @@ export function bindEvents({
   rerenderFromCurrentState,
   optimizeAllocation,
   syncPricesFromApi,
+  importUserFromApi,
+  copyCurrentScenarioToOtherSlot,
   switchCompareScenario,
 }) {
   const inputIds = [
@@ -224,6 +226,13 @@ export function bindEvents({
   document.getElementById("optimize-btn").addEventListener("click", optimizeAllocation);
   document.getElementById("sync-prices-btn").addEventListener("click", () => {
     syncPricesFromApi();
+  });
+  document.getElementById("user-import-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    importUserFromApi();
+  });
+  document.getElementById("compare-copy-btn")?.addEventListener("click", () => {
+    copyCurrentScenarioToOtherSlot();
   });
   document.getElementById("compare-switch-btn").addEventListener("click", switchCompareScenario);
 }

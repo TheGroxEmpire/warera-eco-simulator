@@ -1,5 +1,5 @@
-import { getItemImagePath, getSkillCosts, getTotalSpentPoints } from "../core/simulation.js";
-import { deltaSuffix, fmt } from "../core/math.js";
+import { getItemImagePath, getSkillCosts, getTotalSpentPoints } from "../core/simulation.js?v=20260330-08";
+import { deltaSuffix, fmt } from "../core/math.js?v=20260330-08";
 
 export function createResultsRenderer({
   getConfigFromInputs,

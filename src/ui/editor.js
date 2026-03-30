@@ -1,5 +1,5 @@
-import { AE_RATES, MATERIAL_MAP, MATERIALS } from "../config/constants.js";
-import { getActiveCompaniesForAlloc, getItemImagePath, getStatsForAlloc } from "../core/simulation.js";
+import { AE_RATES, MATERIAL_MAP, MATERIALS } from "../config/constants.js?v=20260330-08";
+import { getActiveCompaniesForAlloc, getItemImagePath, getStatsForAlloc } from "../core/simulation.js?v=20260330-08";
 
 export function createEditorUI({
   getConfigFromInputs,
@@ -87,6 +87,12 @@ export function createEditorUI({
     const alloc = getAllocationsFromInputs();
     const activeCompanyIds = new Set(getActiveCompaniesForAlloc(alloc, config).map((company) => company.id));
     const companyConfigsState = getCompanyConfigsMutable();
+
+    if (companyConfigsState.length === 0) {
+      editorEl.innerHTML = `<p class="hint worker-empty">No companies configured yet.</p>`;
+      renderEntrepreneurshipPlanEditor();
+      return;
+    }
 
     editorEl.innerHTML = companyConfigsState.map((company, index) => {
       const material = MATERIAL_MAP.get(company.specialization) || MATERIALS[0];

@@ -59,6 +59,33 @@ body {
   font-weight: 600;
 }
 
+.hero-links {
+  margin-top: 0.9rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.hero-links a {
+  color: var(--accent-strong);
+  text-decoration: none;
+  font-size: 0.86rem;
+  font-weight: 600;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 138, 118, 0.18);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.hero-links a:hover {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.hero-links a:focus {
+  outline: 2px solid rgba(15, 138, 118, 0.3);
+  outline-offset: 1px;
+}
+
 .panel {
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -85,6 +112,69 @@ body {
 .control-grid {
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   margin-top: 0.5rem;
+}
+
+.user-import-form {
+  align-items: end;
+}
+
+.user-import-form button {
+  margin-top: 0;
+}
+
+.user-import-summary {
+  margin-top: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.75rem;
+}
+
+.status-banner {
+  margin: 0.8rem 0 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.user-import-summary-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.user-import-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.user-import-meta {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.user-import-name,
+.user-import-id {
+  margin: 0;
+}
+
+.user-import-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.user-import-id {
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .optimize-flags {
@@ -181,6 +271,24 @@ button:hover {
   color: var(--muted);
   font-size: 0.85rem;
   margin: 0.55rem 0 0;
+}
+
+.status-error {
+  color: var(--warn);
+  border-color: rgba(182, 58, 47, 0.35);
+  background: rgba(182, 58, 47, 0.08);
+}
+
+.status-success {
+  color: var(--accent-strong);
+  border-color: rgba(15, 138, 118, 0.28);
+  background: rgba(15, 138, 118, 0.08);
+}
+
+.status-info {
+  color: var(--ink);
+  border-color: rgba(35, 51, 55, 0.18);
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .price-grid {
@@ -476,5 +584,9 @@ button:hover {
   select,
   button {
     padding: 0.6rem;
+  }
+
+  .user-import-summary-card {
+    align-items: flex-start;
   }
 }

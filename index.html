@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260304-01">
+  <link rel="stylesheet" href="./styles.css?v=20260330-08">
 </head>
 <body>
   <main class="app">
@@ -15,10 +15,28 @@
       <h1>WarEra Economy Skill Simulator</h1>
       <p>Simple tool for PP flow, material output, and profit optimization.</p>
       <p class="credit">Created by GroxEmpire</p>
+      <div class="hero-links">
+        <a href="https://github.com/TheGroxEmpire/warera-eco-simulator" target="_blank" rel="noreferrer">GitHub Repository</a>
+        <a href="https://github.com/TheGroxEmpire/warera-eco-simulator/issues" target="_blank" rel="noreferrer">Report Issues or Suggestions</a>
+      </div>
     </header>
 
     <section class="panel">
-      <h2>1. Skill Allocation</h2>
+      <h2>1. Import User</h2>
+      <p class="hint">Search a WarEra username or paste a user ID to pull level, skills, owned companies, worker stats, company, and worker wages.</p>
+      <form id="user-import-form" class="grid control-grid user-import-form">
+        <label class="user-import-search">
+          Username or User ID
+          <input id="user-search" type="search" placeholder="GroxEmpire or 698f5c7311b28721ff537bf6" autocomplete="off">
+        </label>
+        <button id="user-import-btn" type="submit">Import from WarEra</button>
+      </form>
+      <p id="user-import-status" class="status-banner hidden" role="status" aria-live="polite"></p>
+      <div id="user-import-summary" class="user-import-summary hidden"></div>
+    </section>
+
+    <section class="panel">
+      <h2>2. Skill Allocation</h2>
       <div class="grid skill-grid">
         <label>
           Player Level
@@ -52,7 +70,7 @@
     </section>
 
     <section class="panel">
-      <h2>2. Operation Settings</h2>
+      <h2>3. Operation Settings</h2>
       <div class="grid settings-grid">
         <label>
           Work Energy Usage (%)
@@ -67,7 +85,7 @@
           <input id="company-utilization" type="number" min="0" max="100" step="1" value="100">
         </label>
         <label>
-          Your Work Wage / PP
+          Your Work Wage / PP (After Tax)
           <input id="own-wage" type="number" min="0" step="0.01" value="0.13">
         </label>
       </div>
@@ -75,7 +93,7 @@
     </section>
 
     <section class="panel">
-      <h2>3. Company Setup</h2>
+      <h2>4. Company Setup</h2>
       <p class="hint">Each company has its own specialization, AE level, workers, worker energy/production, worker wage, production bonus, and worker fidelity.</p>
       <p id="company-summary" class="mono"></p>
       <p id="company-warning" class="warning hidden"></p>
@@ -87,7 +105,7 @@
     </section>
 
     <section class="panel">
-      <h2>4. Entrepreneurship Plan</h2>
+      <h2>5. Entrepreneurship Plan</h2>
       <p class="hint">Plan self-work actions per 10h cycle by assigning each action slot to a company. Each action costs 10 Entrepreneurship. Optimizer can optimize this plan for you.</p>
       <p id="entre-plan-summary" class="mono"></p>
       <p id="entre-plan-warning" class="warning hidden"></p>
@@ -95,7 +113,7 @@
     </section>
 
     <section class="panel">
-      <h2>5. Price Inputs</h2>
+      <h2>6. Price Inputs</h2>
       <div class="grid control-grid">
         <button id="sync-prices-btn" type="button" class="secondary-btn">Sync Prices from WarEra API</button>
       </div>
@@ -104,7 +122,7 @@
     </section>
 
     <section class="panel">
-      <h2>6. Optimization</h2>
+      <h2>7. Optimization</h2>
       <p class="hint">Choose what optimizer should change: skill allocation, entrepreneurship plan, or both.</p>
       <div class="grid control-grid">
         <label>
@@ -133,15 +151,16 @@
     </section>
 
     <section class="panel">
-      <h2>7. Results</h2>
+      <h2>8. Results</h2>
       <div class="reference-controls">
         <button id="compare-switch-btn" type="button" class="secondary-btn">Switch to Scenario B</button>
+        <button id="compare-copy-btn" type="button" class="secondary-btn">Copy to Scenario B</button>
       </div>
       <p id="reference-status" class="hint">Scenario A is active and auto-saved on every change.</p>
       <p id="caps-warning" class="warning hidden"></p>
       <div id="result-grid" class="result-grid"></div>
     </section>
   </main>
-  <script type="module" src="./src/main.js?v=20260304-02"></script>
+  <script type="module" src="./src/main.js?v=20260330-08"></script>
 </body>
 </html>

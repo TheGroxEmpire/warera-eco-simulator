@@ -8,7 +8,7 @@ import {
   OBJECTIVES,
   PRICE_API_URL,
   STORAGE_KEY,
-} from "./config/constants.js";
+} from "./config/constants.js?v=20260330-08";
 import {
   buildEntrePlanSlotsFromPlan,
   getActiveCompaniesForAlloc,
@@ -16,13 +16,20 @@ import {
   getStatsForAlloc,
   sanitizeEntrePlanSlots,
   simulate,
-} from "./core/simulation.js";
-import { fmt } from "./core/math.js";
-import { optimizeAllocationAndPlan } from "./core/optimizer.js";
-import { createCompanyState } from "./state/company-state.js";
-import { createEditorUI } from "./ui/editor.js";
-import { bindEvents as bindUiEvents } from "./ui/events.js";
-import { createResultsRenderer } from "./ui/results.js";
+} from "./core/simulation.js?v=20260330-08";
+import { fmt } from "./core/math.js?v=20260330-08";
+import { optimizeAllocationAndPlan } from "./core/optimizer.js?v=20260330-08";
+import { importWareraUserData } from "./integrations/warera-import.js?v=20260330-08";
+import {
+  copySnapshotToOtherCompareSlot,
+  getOtherCompareSlot,
+  getPriceSyncSummary,
+  updateCompareSlotsWithPrices,
+} from "./state/compare-state.js?v=20260330-08";
+import { createCompanyState } from "./state/company-state.js?v=20260330-08";
+import { createEditorUI } from "./ui/editor.js?v=20260330-08";
+import { bindEvents as bindUiEvents } from "./ui/events.js?v=20260330-08";
+import { createResultsRenderer } from "./ui/results.js?v=20260330-08";
 
 let compareState = {
   active: "A",
@@ -112,6 +119,7 @@ function normalizeSnapshot(raw) {
   const config = raw.config || {};
   const alloc = raw.alloc || {};
   const prices = raw.prices || {};
+  const hasCompanyConfigs = Array.isArray(raw.companyConfigs);
   const rawCompanyConfigs = Array.isArray(raw.companyConfigs) ? raw.companyConfigs : [];
   const objective = OBJECTIVES[config.objective] ? config.objective : DEFAULT_OBJECTIVE_KEY;
   const hasLegacyEmployeePPDay = config.employeePPDay !== undefined && config.employeePPDay !== null && config.employeePPDay !== "";
@@ -152,6 +160,7 @@ function normalizeSnapshot(raw) {
     },
     prices: normalizedPrices,
     companyConfigs,
+    hasCompanyConfigs,
   };
 }
 
@@ -234,7 +243,7 @@ function applySnapshotToInputs(snapshot, shouldRerender = true) {
   for (const material of MATERIALS) {
     setValue(`price-${material.id}`, normalized.prices[material.id]);
   }
-  setCompanyConfigs(normalized.companyConfigs);
+  setCompanyConfigs(normalized.companyConfigs, {}, { allowEmpty: normalized.hasCompanyConfigs === true });
   renderCompanyEditor();
   if (shouldRerender) {
     rerenderFromCurrentState();
@@ -346,9 +355,6 @@ function optimizeAllocation() {
   }
 
   rerenderFromCurrentState();
-
-  const fixedInfo = `Fixed: Companies L${optimization.fixedAlloc.companies}, Management L${optimization.fixedAlloc.management} (cost ${optimization.fixedCost}).`;
-  optimizerStatusEl.textContent = `Optimizer (${optimization.modeLabel}) checked ${optimization.checkedSkillAllocs.toLocaleString()} skill allocations and ${optimization.checkedEntrePlanStates.toLocaleString()} entrepreneurship-plan states (${optimization.planMethod}). ${fixedInfo} Best ${optimization.objectiveLabel}: ${fmt(optimization.bestScore)}.`;
 }
 
 function getCompareSlotLabel(slot) {
@@ -357,16 +363,19 @@ function getCompareSlotLabel(slot) {
 
 function renderReferenceComparison() {
   const toggleBtn = document.getElementById("compare-switch-btn");
+  const copyBtn = document.getElementById("compare-copy-btn");
   const statusEl = document.getElementById("reference-status");
-  if (!toggleBtn || !statusEl) return null;
+  if (!toggleBtn || !copyBtn || !statusEl) return null;
 
   const activeSlot = compareState.active === "B" ? "B" : "A";
-  const compareSlot = activeSlot === "A" ? "B" : "A";
+  const compareSlot = getOtherCompareSlot(activeSlot);
   const activeSnapshot = normalizeSnapshot(compareState.slots[activeSlot]);
   const compareSnapshot = normalizeSnapshot(compareState.slots[compareSlot]);
 
   toggleBtn.disabled = !compareSnapshot;
   toggleBtn.textContent = `Switch to ${getCompareSlotLabel(compareSlot)}`;
+  copyBtn.disabled = !activeSnapshot;
+  copyBtn.textContent = `Copy to ${getCompareSlotLabel(compareSlot)}`;
 
   if (!compareSnapshot) {
     statusEl.textContent = `${getCompareSlotLabel(activeSlot)} is active and auto-saved on every change.`;
@@ -383,6 +392,214 @@ function renderReferenceComparison() {
 
 function render(result) {
   resultsRenderer?.render(result);
+}
+
+function applyPricesToInputs(prices) {
+  for (const material of MATERIALS) {
+    const input = document.getElementById(`price-${material.id}`);
+    if (input && typeof prices[material.id] === "number" && Number.isFinite(prices[material.id])) {
+      input.value = String(prices[material.id]);
+    }
+  }
+}
+
+function updateCompareSnapshotsWithPrices(prices) {
+  const savedAt = new Date().toISOString();
+  compareState = updateCompareSlotsWithPrices(compareState, prices, savedAt);
+  saveCompareState();
+}
+
+async function fetchLatestPricesFromApi() {
+  const response = await fetch(PRICE_API_URL);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const apiData = payload?.result?.data;
+  if (!apiData || typeof apiData !== "object") {
+    throw new Error("Unexpected API response format.");
+  }
+
+  const prices = {};
+  let updated = 0;
+  const missing = [];
+
+  for (const material of MATERIALS) {
+    const value = getApiKeysForMaterial(material.id)
+      .map((key) => apiData[key])
+      .find((candidate) => typeof candidate === "number" && Number.isFinite(candidate));
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      prices[material.id] = value;
+      updated += 1;
+    } else {
+      missing.push(material.name);
+    }
+  }
+
+  return { prices, updated, missing };
+}
+
+async function refreshLatestPrices({
+  updateCurrentInputs = true,
+  updateCompareSnapshots = true,
+  rerenderAfter = true,
+  setStatus = true,
+  statusPrefix = "Fetching latest prices from WarEra API...",
+} = {}) {
+  const statusEl = document.getElementById("price-sync-status");
+  if (setStatus && statusEl) {
+    statusEl.textContent = statusPrefix;
+  }
+
+  const { prices, updated, missing } = await fetchLatestPricesFromApi();
+
+  if (updateCurrentInputs) {
+    applyPricesToInputs(prices);
+  }
+  if (updateCompareSnapshots) {
+    updateCompareSnapshotsWithPrices(prices);
+  }
+  if (rerenderAfter) {
+    rerenderFromCurrentState();
+  }
+  if (setStatus && statusEl) {
+    statusEl.textContent = getPriceSyncSummary(updated, missing);
+  }
+
+  return { prices, updated, missing };
+}
+
+function pluralize(count, singular, plural = `${singular}s`) {
+  return count === 1 ? singular : plural;
+}
+
+function setUserImportStatus(message, tone = "default") {
+  const statusEl = document.getElementById("user-import-status");
+  if (!statusEl) {
+    return;
+  }
+
+  statusEl.textContent = message;
+  statusEl.classList.remove("hidden", "status-error", "status-success", "status-info");
+
+  if (tone === "error") {
+    statusEl.classList.add("status-error");
+  } else if (tone === "success") {
+    statusEl.classList.add("status-success");
+  } else {
+    statusEl.classList.add("status-info");
+  }
+}
+
+function clearUserImportSummary() {
+  const summaryEl = document.getElementById("user-import-summary");
+  if (!summaryEl) {
+    return;
+  }
+
+  summaryEl.replaceChildren();
+  summaryEl.classList.add("hidden");
+}
+
+function renderUserImportSummary(imported) {
+  const summaryEl = document.getElementById("user-import-summary");
+  if (!summaryEl) {
+    return;
+  }
+
+  summaryEl.replaceChildren();
+
+  const cardEl = document.createElement("div");
+  cardEl.className = "user-import-summary-card";
+
+  if (imported.user.avatarUrl) {
+    const avatarEl = document.createElement("img");
+    avatarEl.className = "user-import-avatar";
+    avatarEl.src = imported.user.avatarUrl;
+    avatarEl.alt = `${imported.user.username} avatar`;
+    avatarEl.loading = "lazy";
+    cardEl.append(avatarEl);
+  }
+
+  const detailsEl = document.createElement("div");
+  detailsEl.className = "user-import-meta";
+
+  const nameEl = document.createElement("p");
+  nameEl.className = "user-import-name";
+  nameEl.textContent = imported.user.username;
+
+  const idEl = document.createElement("p");
+  idEl.className = "user-import-id mono";
+  idEl.textContent = imported.user.id;
+
+  const summaryTextEl = document.createElement("p");
+  summaryTextEl.className = "hint";
+  summaryTextEl.textContent = `Level ${imported.level} | Companies imported: ${imported.summary.companiesImported}/${imported.summary.companiesFound} | Workers imported: ${imported.summary.workersImported}`;
+
+  detailsEl.append(nameEl, idEl, summaryTextEl);
+
+  if (imported.warnings.length > 0) {
+    const warningEl = document.createElement("p");
+    warningEl.className = "hint";
+    warningEl.textContent = imported.warnings.join(" ");
+    detailsEl.append(warningEl);
+  }
+
+  cardEl.append(detailsEl);
+  summaryEl.append(cardEl);
+  summaryEl.classList.remove("hidden");
+}
+
+async function importUserFromApi() {
+  const searchInput = document.getElementById("user-search");
+  const button = document.getElementById("user-import-btn");
+  if (!searchInput || !button) {
+    return;
+  }
+
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  searchInput.disabled = true;
+  button.textContent = "Importing...";
+  setUserImportStatus("Looking up WarEra user data and building simulator state...");
+
+  try {
+    const imported = await importWareraUserData(searchInput.value);
+
+    document.getElementById("level").value = String(imported.level);
+    setAllocationsToInputs(imported.alloc);
+    setCompanyConfigs(imported.companyConfigs, {}, { allowEmpty: true });
+    setEntrePlanSlotsState([]);
+    renderUserImportSummary(imported);
+    renderCompanyEditor();
+    rerenderFromCurrentState();
+
+    const searchNote = imported.summary.matchedBy === "search" && imported.summary.searchCandidateCount > 1 && !imported.summary.exactUsernameMatch
+      ? ` Selected the first of ${imported.summary.searchCandidateCount} search matches.`
+      : "";
+    const skippedNote = imported.summary.companiesSkipped > 0
+      ? ` Skipped ${imported.summary.companiesSkipped} ${pluralize(imported.summary.companiesSkipped, "company")} that could not be mapped into the simulator.`
+      : "";
+    const workerFallbackNote = imported.summary.workerProfilesMissing > 0
+      ? ` ${imported.summary.workerProfilesMissing} ${pluralize(imported.summary.workerProfilesMissing, "worker profile")} used default energy/production values.`
+      : "";
+
+    setUserImportStatus(
+      `Imported ${imported.user.username}. Skills, level, companies, worker stats, company production bonuses from country, region, and ruling party data, and company wages were refreshed. Your own wage stays manual.${searchNote}${skippedNote}${workerFallbackNote}`,
+      "success",
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    setUserImportStatus(`User import failed: ${message}`, "error");
+    clearUserImportSummary();
+    console.error("User import failed:", err);
+  } finally {
+    button.disabled = false;
+    searchInput.disabled = false;
+    button.textContent = originalLabel;
+  }
 }
 
 function saveState() {
@@ -464,8 +681,8 @@ function loadState() {
       maybeSet(`price-${material.id}`, p[material.id]);
     }
 
-    if (Array.isArray(savedCompanyConfigs) && savedCompanyConfigs.length > 0) {
-      setCompanyConfigs(savedCompanyConfigs, companyDefaults);
+    if (Array.isArray(savedCompanyConfigs)) {
+      setCompanyConfigs(savedCompanyConfigs, companyDefaults, { allowEmpty: true });
     } else {
       setCompanyConfigs([createDefaultCompanyConfig("iron"), createDefaultCompanyConfig("steel")]);
     }
@@ -531,65 +748,88 @@ function saveCurrentToActiveCompareSlot() {
   saveCompareState();
 }
 
-function switchCompareScenario() {
-  saveCurrentToActiveCompareSlot();
-
-  const targetSlot = compareState.active === "A" ? "B" : "A";
-  const targetSnapshot = compareState.slots[targetSlot];
-  compareState.active = targetSlot;
-
-  if (targetSnapshot) {
-    applySnapshotToInputs(targetSnapshot, false);
+function copyCurrentScenarioToOtherSlot() {
+  const snapshot = captureSnapshotFromInputs();
+  if (!snapshot) {
+    return;
   }
 
+  compareState = copySnapshotToOtherCompareSlot(compareState, snapshot);
   saveCompareState();
   rerenderFromCurrentState();
 }
 
+async function switchCompareScenario() {
+  const toggleBtn = document.getElementById("compare-switch-btn");
+  const copyBtn = document.getElementById("compare-copy-btn");
+  saveCurrentToActiveCompareSlot();
+
+  if (toggleBtn) {
+    toggleBtn.disabled = true;
+    toggleBtn.textContent = "Switching...";
+  }
+  if (copyBtn) {
+    copyBtn.disabled = true;
+  }
+
+  try {
+    try {
+      await refreshLatestPrices({
+        updateCurrentInputs: true,
+        updateCompareSnapshots: true,
+        rerenderAfter: false,
+        setStatus: true,
+        statusPrefix: "Refreshing latest prices for Scenario A and Scenario B...",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const statusEl = document.getElementById("price-sync-status");
+      if (statusEl) {
+        statusEl.textContent = `Price sync failed before scenario switch: ${message}`;
+      }
+      console.error("Price sync failed before scenario switch:", err);
+    }
+
+    const targetSlot = getOtherCompareSlot(compareState.active);
+    const targetSnapshot = compareState.slots[targetSlot];
+    compareState.active = targetSlot;
+
+    if (targetSnapshot) {
+      applySnapshotToInputs(targetSnapshot, false);
+    }
+
+    saveCompareState();
+    rerenderFromCurrentState();
+  } finally {
+    if (toggleBtn) {
+      toggleBtn.disabled = false;
+    }
+    if (copyBtn) {
+      copyBtn.disabled = false;
+    }
+  }
+}
+
 async function syncPricesFromApi() {
   const button = document.getElementById("sync-prices-btn");
-  const statusEl = document.getElementById("price-sync-status");
   const originalLabel = button.textContent;
   button.disabled = true;
   button.textContent = "Syncing...";
-  statusEl.textContent = "Fetching latest prices from WarEra API...";
 
   try {
-    const response = await fetch(PRICE_API_URL);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const payload = await response.json();
-    const apiData = payload?.result?.data;
-    if (!apiData || typeof apiData !== "object") {
-      throw new Error("Unexpected API response format.");
-    }
-
-    let updated = 0;
-    const missing = [];
-
-    for (const material of MATERIALS) {
-      const apiKeys = getApiKeysForMaterial(material.id);
-      const value = apiKeys.map((key) => apiData[key]).find((candidate) => typeof candidate === "number" && Number.isFinite(candidate));
-      if (typeof value === "number" && Number.isFinite(value)) {
-        const input = document.getElementById(`price-${material.id}`);
-        if (input) {
-          input.value = String(value);
-          updated += 1;
-        }
-      } else {
-        missing.push(material.name);
-      }
-    }
-
-    rerenderFromCurrentState();
-
-    const timestamp = new Date().toLocaleString();
-    statusEl.textContent = `Synced ${updated} prices at ${timestamp}.${missing.length ? ` Missing in API: ${missing.join(", ")}.` : ""}`;
+    await refreshLatestPrices({
+      updateCurrentInputs: true,
+      updateCompareSnapshots: true,
+      rerenderAfter: true,
+      setStatus: true,
+      statusPrefix: "Fetching latest prices from WarEra API...",
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    statusEl.textContent = `Price sync failed: ${message}`;
+    const statusEl = document.getElementById("price-sync-status");
+    if (statusEl) {
+      statusEl.textContent = `Price sync failed: ${message}`;
+    }
     console.error("Price sync failed:", err);
   } finally {
     button.disabled = false;
@@ -608,6 +848,8 @@ function bindEvents() {
     rerenderFromCurrentState,
     optimizeAllocation,
     syncPricesFromApi,
+    importUserFromApi,
+    copyCurrentScenarioToOtherSlot,
     switchCompareScenario,
   });
 }
