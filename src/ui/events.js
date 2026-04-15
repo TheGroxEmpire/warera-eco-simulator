@@ -31,6 +31,7 @@ export function bindEvents({
     "company-utilization",
     "own-wage",
     "optimize-skill-toggle",
+    "optimize-factory-toggle",
     "optimize-entre-plan-toggle",
     ...MATERIALS.map((material) => `price-${material.id}`),
   ];
@@ -100,7 +101,7 @@ export function bindEvents({
     }
   });
 
-  const companyNumericSelector = "[data-action='set-wage'], [data-action='set-company-bonus'], [data-action='set-worker-fidelity'], [data-action='set-worker-energy'], [data-action='set-worker-production']";
+  const companyNumericSelector = "[data-action='set-wage'], [data-action='set-company-bonus'], [data-action='set-worker-fidelity'], [data-action='set-worker-energy'], [data-action='set-worker-production'], [data-action='set-worker-wage']";
   const applyCompanyNumericChange = (changed) => {
     const companyId = Number(changed.dataset.companyId);
     const companyConfigsState = getCompanyConfigsMutable();
@@ -131,6 +132,11 @@ export function bindEvents({
         return false;
       }
       company.workers[workerIndex].productionPerAction = Math.max(0, Number(changed.value) || 0);
+    } else if (changed.dataset.action === "set-worker-wage") {
+      if (!Array.isArray(company.workers) || !company.workers[workerIndex]) {
+        return false;
+      }
+      company.workers[workerIndex].wagePerPP = Math.max(0, Number(changed.value) || 0);
     }
 
     return true;

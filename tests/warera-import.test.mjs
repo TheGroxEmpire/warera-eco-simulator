@@ -340,11 +340,13 @@ test("importWareraUserData converts live-style WarEra payloads into simulator st
         energyPer10h: 120,
         productionPerAction: 44,
         fidelityPct: 9,
+        wagePerPP: 0.13,
       },
       {
         energyPer10h: 100,
         productionPerAction: 31,
         fidelityPct: 10,
+        wagePerPP: 0.17,
       },
     ],
     wagePerPP: 0.15,

@@ -403,10 +403,10 @@ button:hover {
 .worker-grid-head,
 .worker-grid-row {
   display: grid;
-  grid-template-columns: 34px minmax(76px, 1fr) minmax(76px, 1fr) minmax(76px, 1fr) auto;
+  grid-template-columns: 34px minmax(76px, 1fr) minmax(76px, 1fr) minmax(76px, 1fr) minmax(76px, 1fr) auto;
   gap: 0.35rem;
   align-items: center;
-  min-width: 420px;
+  min-width: 500px;
 }
 
 .worker-grid-head {

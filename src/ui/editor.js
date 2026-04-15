@@ -21,6 +21,20 @@ export function createEditorUI({
     `).join("");
   }
 
+  function buildMaterialBonusInputs() {
+    const bonusGrid = document.getElementById("bonus-grid");
+    if (!bonusGrid) return;
+    bonusGrid.innerHTML = MATERIALS.map((material) => `
+      <label class="price-row">
+        <img class="item-icon" src="${getItemImagePath(material.id)}" alt="${material.name} icon" loading="lazy">
+        <span>${material.name} Bonus %</span>
+        <div class="price-input-wrap">
+          <input id="material-bonus-${material.id}" type="number" min="0" step="0.1" value="0">
+        </div>
+      </label>
+    `).join("");
+  }
+
   function syncEntrePlanSlotsForCurrentContext(config, alloc) {
     const stats = getStatsForAlloc(alloc);
     const capPer10h = Math.max(0, Math.floor(stats.entrepreneurship / 10));
@@ -104,16 +118,18 @@ export function createEditorUI({
         : `
           <div class="worker-grid-head">
             <span class="mono">#</span>
-            <span>E / 10h</span>
             <span>P / Act</span>
+            <span>E / 10h</span>
+            <span>Wage</span>
             <span>Fidelity</span>
             <span></span>
           </div>
           ${workers.map((worker, workerIndex) => `
             <div class="worker-grid-row">
               <span class="worker-no mono">${workerIndex + 1}</span>
-              <input type="number" min="0" step="1" value="${worker.energyPer10h}" data-action="set-worker-energy" data-company-id="${company.id}" data-worker-index="${workerIndex}" aria-label="Worker ${workerIndex + 1} Energy per 10h">
               <input type="number" min="0" step="0.1" value="${worker.productionPerAction}" data-action="set-worker-production" data-company-id="${company.id}" data-worker-index="${workerIndex}" aria-label="Worker ${workerIndex + 1} Production per Action">
+              <input type="number" min="0" step="1" value="${worker.energyPer10h}" data-action="set-worker-energy" data-company-id="${company.id}" data-worker-index="${workerIndex}" aria-label="Worker ${workerIndex + 1} Energy per 10h">
+              <input type="number" min="0" step="0.01" value="${worker.wagePerPP}" data-action="set-worker-wage" data-company-id="${company.id}" data-worker-index="${workerIndex}" aria-label="Worker ${workerIndex + 1} Wage per PP">
               <input type="number" min="0" max="10" step="0.1" value="${worker.fidelityPct}" data-action="set-worker-fidelity" data-company-id="${company.id}" data-worker-index="${workerIndex}" aria-label="Worker ${workerIndex + 1} Fidelity Percent">
               <button type="button" class="inline-btn worker-remove-btn" data-action="remove-worker" data-company-id="${company.id}" data-worker-index="${workerIndex}">Remove</button>
             </div>
@@ -141,19 +157,11 @@ export function createEditorUI({
               ${Object.entries(AE_RATES).map(([level, rate]) => `<option value="${level}" ${Number(level) === company.aeLevel ? "selected" : ""}>AE ${level} (${rate}/day)</option>`).join("")}
             </select>
           </label>
-          <label>
-            Production Bonus (%)
-            <input type="number" min="0" step="0.1" value="${company.productionBonusPct}" data-action="set-company-bonus" data-company-id="${company.id}">
-          </label>
           <div class="worker-row">
             <span>Workers: <span class="mono">${workers.length}</span></span>
             <button type="button" class="inline-btn" data-action="add-worker" data-company-id="${company.id}">+ Add Worker</button>
           </div>
           <div class="worker-list">${workersMarkup}</div>
-          <label>
-            Worker Wage / PP
-            <input type="number" min="0" step="0.01" value="${company.wagePerPP}" data-action="set-wage" data-company-id="${company.id}">
-          </label>
         </article>
       `;
     }).join("");
@@ -163,6 +171,7 @@ export function createEditorUI({
 
   return {
     buildMaterialInputs,
+    buildMaterialBonusInputs,
     renderEntrepreneurshipPlanEditor,
     renderCompanyEditor,
   };

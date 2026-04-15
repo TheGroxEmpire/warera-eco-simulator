@@ -2,6 +2,12 @@ services:
   warera-eco-simulator:
     build: .
     container_name: warera-eco-simulator
+    volumes:
+      - ./index.html:/usr/share/nginx/html/eco-simulator/index.html
+      - ./styles.css:/usr/share/nginx/html/eco-simulator/styles.css
+      - ./app.js:/usr/share/nginx/html/eco-simulator/app.js
+      - ./src:/usr/share/nginx/html/eco-simulator/src
+      - ./images:/usr/share/nginx/html/eco-simulator/images
     networks:
       - proxy
     labels:

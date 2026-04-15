@@ -415,6 +415,7 @@ export function simulate(alloc, config) {
 
     let workerRawPPDay = 0;
     let workerPPDay = 0;
+    let workerPayrollCostDay = 0;
 
     for (const worker of activeWorkers) {
       const actionsPerDay = Math.floor(worker.energyPer10h / 10) * CYCLES_PER_DAY;
@@ -423,6 +424,7 @@ export function simulate(alloc, config) {
       workerPPDay += rawPPDay
         * companyProductionBonusMultiplier
         * fidelityMultiplier(worker.fidelityPct);
+      workerPayrollCostDay += rawPPDay * config.companyUtilizationPct * worker.wagePerPP;
     }
 
     const aePPDay = (AE_RATES[company.aeLevel] || 0) * companyProductionBonusMultiplier;
@@ -433,7 +435,7 @@ export function simulate(alloc, config) {
     employeeRawPPDay += workerRawPPDay;
     autoCompanyPPDay += aePPDay;
     employeePPDay += workerPPDay;
-    payrollCostDay += workerRawPPDay * config.companyUtilizationPct * company.wagePerPP;
+    payrollCostDay += workerPayrollCostDay;
 
     companyCards.push({
       ...company,

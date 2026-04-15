@@ -93,8 +93,12 @@
     </section>
 
     <section class="panel">
-      <h2>4. Company Setup</h2>
-      <p class="hint">Each company has its own specialization, AE level, workers, worker energy/production, worker wage, production bonus, and worker fidelity.</p>
+      <h2>4. Factory Settings</h2>
+      <h3>Production Bonuses</h3>
+      <p class="hint">Set production bonuses for each material (from country/region bonuses). Used by factory optimizer.</p>
+      <div id="bonus-grid" class="price-grid"></div>
+      <h3>Company Setup</h3>
+      <p class="hint">Each company has its own specialization, AE level, workers, worker energy/production, worker wage, and worker fidelity.</p>
       <p id="company-summary" class="mono"></p>
       <p id="company-warning" class="warning hidden"></p>
       <div id="companies-editor" class="companies-editor"></div>
@@ -139,6 +143,10 @@
           <label class="checkbox-line">
             <input id="optimize-skill-toggle" type="checkbox" checked>
             <span>Optimize Skill Allocation</span>
+          </label>
+          <label class="checkbox-line">
+            <input id="optimize-factory-toggle" type="checkbox">
+            <span>Optimize Factory Specializations</span>
           </label>
           <label class="checkbox-line">
             <input id="optimize-entre-plan-toggle" type="checkbox">

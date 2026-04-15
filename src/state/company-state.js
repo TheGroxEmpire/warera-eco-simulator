@@ -12,16 +12,18 @@ export function createCompanyState() {
 
   function createDefaultWorkerConfig(overrides = {}) {
     return {
-      energyPer10h: Math.max(0, Number(overrides.energyPer10h ?? 100) || 0),
       productionPerAction: Math.max(0, Number(overrides.productionPerAction ?? 31) || 0),
+      energyPer10h: Math.max(0, Number(overrides.energyPer10h ?? 100) || 0),
+      wagePerPP: Math.max(0, Number(overrides.wagePerPP ?? 0.135) || 0),
       fidelityPct: clamp(Number(overrides.fidelityPct ?? 0) || 0, 0, 10),
     };
   }
 
   function sanitizeWorkerConfig(raw, defaults = {}) {
     return {
-      energyPer10h: Math.max(0, Number(raw?.energyPer10h ?? defaults.energyPer10h ?? 100) || 0),
       productionPerAction: Math.max(0, Number(raw?.productionPerAction ?? defaults.productionPerAction ?? 31) || 0),
+      energyPer10h: Math.max(0, Number(raw?.energyPer10h ?? defaults.energyPer10h ?? 100) || 0),
+      wagePerPP: Math.max(0, Number(raw?.wagePerPP ?? defaults.wagePerPP ?? 0.135) || 0),
       fidelityPct: clamp(Number(raw?.fidelityPct ?? defaults.fidelityPct ?? 0) || 0, 0, 10),
     };
   }

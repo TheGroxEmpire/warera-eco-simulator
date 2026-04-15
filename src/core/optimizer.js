@@ -1,5 +1,6 @@
 import {
   MAX_SKILL_LEVEL,
+  MATERIALS,
   OBJECTIVES,
   OPTIMIZED_SKILL_KEYS,
 } from "../config/constants.js?v=20260330-09";
@@ -106,15 +107,180 @@ export function heuristicOptimizeEntrePlanForAlloc(alloc, config) {
   };
 }
 
+export function optimizeFactorySpecializations(alloc, config, companies) {
+  if (!Array.isArray(companies) || companies.length === 0) {
+    return {
+      bestSpecializations: {},
+      bestResult: null,
+      bestScore: -Infinity,
+      checked: 0,
+    };
+  }
+
+  const materialIds = MATERIALS.map((m) => m.id);
+  let bestSpecializations = {};
+  let bestResult = null;
+  let bestScore = -Infinity;
+  let checked = 0;
+
+  // For each company, assign best specialization based on its bonus
+  // For simplicity, we'll use a greedy approach: assign each company the specialization
+  // that maximizes the final score
+  const testSpecializations = (companyIdx, currentSpecs) => {
+    if (companyIdx >= companies.length) {
+      // All companies assigned - evaluate this specialization combo
+      checked += 1;
+
+      // Create modified companies with new specializations
+      const modifiedCompanies = companies.map((company) => {
+        if (currentSpecs[company.id]) {
+          return { ...company, specialization: currentSpecs[company.id] };
+        }
+        return company;
+      });
+
+      // Create modified config with updated companies
+      const modifiedConfig = {
+        ...config,
+        companyConfigs: modifiedCompanies,
+      };
+
+      const result = simulate(alloc, modifiedConfig);
+      const score = objectiveScore(result, config.objective);
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestResult = result;
+        bestSpecializations = { ...currentSpecs };
+      }
+      return;
+    }
+
+    const company = companies[companyIdx];
+    // Try each material specialization
+    for (const materialId of materialIds) {
+      currentSpecs[company.id] = materialId;
+      testSpecializations(companyIdx + 1, currentSpecs);
+    }
+  };
+
+  // Start recursive assignment
+  testSpecializations(0, {});
+
+  return {
+    bestSpecializations,
+    bestResult,
+    bestScore,
+    checked,
+  };
+}
+
+export function heuristicOptimizeFactorySpecializations(alloc, config, companies) {
+  if (!Array.isArray(companies) || companies.length === 0) {
+    return {
+      bestSpecializations: {},
+      bestResult: null,
+      bestScore: -Infinity,
+      checked: 0,
+    };
+  }
+
+  const materialIds = MATERIALS.map((m) => m.id);
+  const bestSpecializations = {};
+  let checked = 0;
+
+  // Initialize with current specializations
+  for (const company of companies) {
+    bestSpecializations[company.id] = company.specialization;
+  }
+
+  // Evaluate baseline (current specializations)
+  let modifiedCompanies = companies.map((company) => {
+    const materialBonus = config.materialProductionBonuses?.[company.specialization] || 0;
+    return {
+      ...company,
+      specialization: bestSpecializations[company.id],
+      productionBonusPct: company.productionBonusPct + materialBonus,
+    };
+  });
+  let modifiedConfig = {
+    ...config,
+    companyConfigs: modifiedCompanies,
+  };
+  let bestResult = simulate(alloc, modifiedConfig);
+  let bestScore = objectiveScore(bestResult, config.objective);
+  checked += 1;
+
+  // Greedy hill climbing: try each material for each company and keep improvements
+  let improved = true;
+  while (improved) {
+    improved = false;
+    
+    for (const company of companies) {
+      const originalSpec = bestSpecializations[company.id];
+      
+      // Try each material for this company
+      for (const materialId of materialIds) {
+        if (materialId === originalSpec) {
+          continue; // Skip if same as current
+        }
+        
+        // Try this assignment
+        bestSpecializations[company.id] = materialId;
+        
+        // Create modified config with trial assignment + material bonuses
+        modifiedCompanies = companies.map((c) => {
+          const materialBonus = config.materialProductionBonuses?.[bestSpecializations[c.id]] || 0;
+          return {
+            ...c,
+            specialization: bestSpecializations[c.id],
+            productionBonusPct: c.productionBonusPct + materialBonus,
+          };
+        });
+        modifiedConfig = {
+          ...config,
+          companyConfigs: modifiedCompanies,
+        };
+        
+        const trialResult = simulate(alloc, modifiedConfig);
+        const trialScore = objectiveScore(trialResult, config.objective);
+        checked += 1;
+        
+        // Keep if improvement found
+        if (trialScore > bestScore) {
+          bestScore = trialScore;
+          bestResult = trialResult;
+          improved = true;
+          break; // Move to next company once improvement found
+        }
+      }
+      
+      // If no improvement found for this company, revert to best
+      if (bestSpecializations[company.id] !== originalSpec && !improved) {
+        bestSpecializations[company.id] = originalSpec;
+      }
+    }
+  }
+
+  return {
+    bestSpecializations,
+    bestResult,
+    bestScore,
+    checked,
+  };
+}
+
 export function optimizeAllocationAndPlan({
   config,
   currentAlloc,
   optimizeSkill,
   optimizeEntrePlan,
+  optimizeFactory,
+  companies,
 }) {
-  if (!optimizeSkill && !optimizeEntrePlan) {
+  if (!optimizeSkill && !optimizeEntrePlan && !optimizeFactory) {
     return {
-      error: "Select at least one optimizer target: Skill Allocation or Entrepreneurship Plan.",
+      error: "Select at least one optimizer target: Skill Allocation, Factory Specialization, or Entrepreneurship Plan.",
     };
   }
 
@@ -205,6 +371,27 @@ export function optimizeAllocationAndPlan({
     evaluateCandidate(currentAlloc, optimizeEntrePlan ? "exact" : null);
   }
 
+  // Optimize factory specializations if requested
+  let bestFactorySpecializations = null;
+  let bestFactoryResult = bestResult;
+  let bestFactoryScore = bestScore;
+  let bestFactoryConfig = null;
+  let checkedFactorySpecs = 0;
+
+  if (optimizeFactory && Array.isArray(companies) && companies.length > 0) {
+    // Use heuristic factory optimization for speed (exact would be exponential)
+    // We need to pass a config that includes the current companies
+    const configForFactory = { ...config, companyConfigs: companies };
+    const factoryOpt = heuristicOptimizeFactorySpecializations(bestAlloc || currentAlloc, configForFactory, companies);
+    checkedFactorySpecs = factoryOpt.checked;
+    if (factoryOpt.bestScore > bestFactoryScore) {
+      bestFactoryScore = factoryOpt.bestScore;
+      bestFactoryResult = factoryOpt.bestResult;
+      bestFactorySpecializations = factoryOpt.bestSpecializations;
+      bestFactoryConfig = configForFactory;
+    }
+  }
+
   const modeLabel = effectiveOptimizeSkill && optimizeEntrePlan
     ? "skills + entrepreneurship plan"
     : (effectiveOptimizeSkill ? "skills only" : "entrepreneurship plan only");
@@ -219,10 +406,12 @@ export function optimizeAllocationAndPlan({
     error: null,
     checkedSkillAllocs,
     checkedEntrePlanStates,
+    checkedFactorySpecs,
     bestAlloc,
     bestPlanByCompanyId,
-    bestResult,
-    bestScore,
+    bestFactorySpecializations,
+    bestResult: bestFactoryResult || bestResult,
+    bestScore: bestFactoryScore,
     modeLabel,
     planMethod,
     fixedCost,

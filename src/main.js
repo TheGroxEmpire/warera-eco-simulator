@@ -92,6 +92,14 @@ function getPrices() {
   return prices;
 }
 
+function getMaterialProductionBonuses() {
+  const bonuses = {};
+  for (const material of MATERIALS) {
+    bonuses[material.id] = Math.max(0, num(`material-bonus-${material.id}`));
+  }
+  return bonuses;
+}
+
 function getConfigFromInputs() {
   const level = Math.max(1, intNum("level", 1));
   const objective = document.getElementById("objective").value;
@@ -112,6 +120,7 @@ function getConfigFromInputs() {
     totalWorkersConfigured,
     companyConfigs,
     prices: getPrices(),
+    materialProductionBonuses: getMaterialProductionBonuses(),
   };
 }
 
@@ -183,6 +192,12 @@ function normalizeSnapshot(raw) {
     normalizedPrices[material.id] = Math.max(0, Number(prices[material.id]) || 0);
   }
 
+  const normalizedBonuses = {};
+  const bonuses = raw.materialProductionBonuses || {};
+  for (const material of MATERIALS) {
+    normalizedBonuses[material.id] = Math.max(0, Number(bonuses[material.id]) || 0);
+  }
+
   return {
     savedAt: raw.savedAt || new Date().toISOString(),
     config: {
@@ -192,6 +207,7 @@ function normalizeSnapshot(raw) {
       companyUtilization: clamp(Number(config.companyUtilization) || 0, 0, 100),
       ownWage: Math.max(0, Number(config.ownWage) || 0),
       optimizeSkill: config.optimizeSkill !== false,
+      optimizeFactory: config.optimizeFactory === true,
       optimizeEntrePlan: config.optimizeEntrePlan === true,
       entrePlanSlots: sanitizeEntrePlanSlots(config.entrePlanSlots),
       objective,
@@ -204,6 +220,7 @@ function normalizeSnapshot(raw) {
       management: clamp(Math.floor(Number(alloc.management) || 0), 0, MAX_SKILL_LEVEL),
     },
     prices: normalizedPrices,
+    materialProductionBonuses: normalizedBonuses,
     companyConfigs,
     hasCompanyConfigs,
     importMeta: normalizeImportedScenarioMeta(raw.importMeta),
@@ -220,12 +237,14 @@ function captureSnapshotFromInputs() {
       companyUtilization: document.getElementById("company-utilization").value,
       ownWage: document.getElementById("own-wage").value,
       optimizeSkill: document.getElementById("optimize-skill-toggle")?.checked !== false,
+      optimizeFactory: document.getElementById("optimize-factory-toggle")?.checked === true,
       optimizeEntrePlan: document.getElementById("optimize-entre-plan-toggle")?.checked === true,
       entrePlanSlots: getEntrePlanSlotsState(),
       objective: document.getElementById("objective").value,
     },
     alloc: getAllocationsFromInputs(),
     prices: getPrices(),
+    materialProductionBonuses: getMaterialProductionBonuses(),
     companyConfigs: getCompanyConfigs(),
     importMeta: getImportedScenarioMetaSnapshot(),
   });
@@ -282,17 +301,21 @@ function applySnapshotToInputs(snapshot, shouldRerender = true) {
   setValue("own-wage", normalized.config.ownWage);
   setValue("objective", normalized.config.objective);
   const optimizeSkillToggle = document.getElementById("optimize-skill-toggle");
+  const optimizeFactoryToggle = document.getElementById("optimize-factory-toggle");
   const optimizeEntrePlanToggle = document.getElementById("optimize-entre-plan-toggle");
   if (optimizeSkillToggle) optimizeSkillToggle.checked = normalized.config.optimizeSkill !== false;
+  if (optimizeFactoryToggle) optimizeFactoryToggle.checked = normalized.config.optimizeFactory === true;
   if (optimizeEntrePlanToggle) optimizeEntrePlanToggle.checked = normalized.config.optimizeEntrePlan === true;
   setEntrePlanSlotsState(normalized.config.entrePlanSlots);
   setAllocationsToInputs(normalized.alloc);
   for (const material of MATERIALS) {
     setValue(`price-${material.id}`, normalized.prices[material.id]);
+    setValue(`material-bonus-${material.id}`, normalized.materialProductionBonuses[material.id]);
   }
   setCompanyConfigs(normalized.companyConfigs, {}, { allowEmpty: normalized.hasCompanyConfigs === true });
   applyImportedScenarioMeta(normalized.importMeta);
   renderCompanyEditor();
+  buildMaterialBonusInputs();
   if (shouldRerender) {
     rerenderFromCurrentState();
   }
@@ -378,7 +401,9 @@ function applyEntrePlanToState(planByCompanyId, alloc, config) {
 function optimizeAllocation() {
   const config = getConfigFromInputs();
   const currentAlloc = getAllocationsFromInputs();
+  const companies = getCompanyConfigs();
   const optimizeSkill = document.getElementById("optimize-skill-toggle")?.checked === true;
+  const optimizeFactory = document.getElementById("optimize-factory-toggle")?.checked === true;
   const optimizeEntrePlan = document.getElementById("optimize-entre-plan-toggle")?.checked === true;
   const optimizerStatusEl = document.getElementById("optimizer-status");
 
@@ -386,7 +411,9 @@ function optimizeAllocation() {
     config,
     currentAlloc,
     optimizeSkill,
+    optimizeFactory,
     optimizeEntrePlan,
+    companies,
   });
 
   if (optimization.error) {
@@ -397,9 +424,33 @@ function optimizeAllocation() {
   if (optimization.bestAlloc) {
     setAllocationsToInputs(optimization.bestAlloc);
   }
+  if (optimizeFactory && optimization.bestFactorySpecializations) {
+    // Apply optimized specializations to companies
+    const companyConfigsState = getCompanyConfigsMutable();
+    for (const company of companyConfigsState) {
+      if (optimization.bestFactorySpecializations[company.id]) {
+        company.specialization = optimization.bestFactorySpecializations[company.id];
+      }
+    }
+    renderCompanyEditor();
+  }
   if (optimizeEntrePlan && optimization.bestPlanByCompanyId) {
     applyEntrePlanToState(optimization.bestPlanByCompanyId, optimization.bestAlloc || currentAlloc, config);
     renderCompanyEditor();
+  }
+
+  // Show status message
+  const statusParts = [];
+  if (optimization.bestAlloc) statusParts.push("Skills");
+  if (optimizeFactory && optimization.bestFactorySpecializations && Object.keys(optimization.bestFactorySpecializations).length > 0) {
+    statusParts.push("Factory specializations");
+  }
+  if (optimizeEntrePlan && optimization.bestPlanByCompanyId) statusParts.push("Entrepreneurship plan");
+  
+  if (statusParts.length > 0) {
+    optimizerStatusEl.textContent = `Optimized: ${statusParts.join(", ")}. Checked ${optimization.checkedSkillAllocs || 0} skill allocs, ${optimization.checkedFactorySpecs || 0} factory specs, ${optimization.checkedEntrePlanStates || 0} plan states.`;
+  } else {
+    optimizerStatusEl.textContent = "No changes found - current configuration is already optimal.";
   }
 
   rerenderFromCurrentState();
@@ -701,12 +752,14 @@ function saveState() {
       companyUtilization: document.getElementById("company-utilization").value,
       ownWage: document.getElementById("own-wage").value,
       optimizeSkill: document.getElementById("optimize-skill-toggle")?.checked !== false,
+      optimizeFactory: document.getElementById("optimize-factory-toggle")?.checked === true,
       optimizeEntrePlan: document.getElementById("optimize-entre-plan-toggle")?.checked === true,
       entrePlanSlots: getEntrePlanSlotsState(),
       objective: document.getElementById("objective").value,
     },
     alloc: getAllocationsFromInputs(),
     prices: getPrices(),
+    materialProductionBonuses: getMaterialProductionBonuses(),
     companyConfigs: getCompanyConfigs(),
     importMeta: getImportedScenarioMetaSnapshot(),
   };
@@ -756,8 +809,10 @@ function loadState() {
     maybeSet("own-wage", c.ownWage);
     maybeSet("objective", c.objective);
     const optimizeSkillToggle = document.getElementById("optimize-skill-toggle");
+    const optimizeFactoryToggle = document.getElementById("optimize-factory-toggle");
     const optimizeEntrePlanToggle = document.getElementById("optimize-entre-plan-toggle");
     if (optimizeSkillToggle) optimizeSkillToggle.checked = c.optimizeSkill !== false;
+    if (optimizeFactoryToggle) optimizeFactoryToggle.checked = c.optimizeFactory === true;
     if (optimizeEntrePlanToggle) optimizeEntrePlanToggle.checked = c.optimizeEntrePlan === true;
     if (!OBJECTIVES[document.getElementById("objective").value]) {
       document.getElementById("objective").value = DEFAULT_OBJECTIVE_KEY;
@@ -771,6 +826,7 @@ function loadState() {
 
     for (const material of MATERIALS) {
       maybeSet(`price-${material.id}`, p[material.id]);
+      maybeSet(`material-bonus-${material.id}`, parsed.materialProductionBonuses?.[material.id] || 0);
     }
 
     if (Array.isArray(savedCompanyConfigs)) {
@@ -812,6 +868,10 @@ function loadState() {
 
 function buildMaterialInputs() {
   editorUI?.buildMaterialInputs();
+}
+
+function buildMaterialBonusInputs() {
+  editorUI?.buildMaterialBonusInputs();
 }
 
 function renderEntrepreneurshipPlanEditor() {
@@ -965,6 +1025,7 @@ function init() {
   });
 
   buildMaterialInputs();
+  buildMaterialBonusInputs();
   setCompanyConfigs([createDefaultCompanyConfig("iron"), createDefaultCompanyConfig("steel")]);
   loadState();
   loadCompareState();

@@ -313,10 +313,12 @@ export function getImportedCompanyProductionBonusPct(
 }
 
 export function buildImportedWorkerConfig(workerRecord, workerLite = null) {
+  const wage = Number(workerRecord?.wage) || 0;
   return {
     energyPer10h: workerLite ? getWorkerEnergyPer10h(workerLite) : DEFAULT_WORKER_ENERGY_PER_10H,
     productionPerAction: workerLite ? getWorkerProductionPerAction(workerLite) : DEFAULT_WORKER_PRODUCTION_PER_ACTION,
     fidelityPct: clamp(Number(workerRecord?.fidelity) || 0, 0, 10),
+    wagePerPP: wage > 0 ? wage : 0.135,
   };
 }
 
