@@ -51,6 +51,14 @@ const {
 let editorUI = null;
 let resultsRenderer = null;
 let companyEditorFrame = 0;
+let priceDataSyncedAt = null;
+let bonusDataSyncedAt = null;
+let priceDataSyncedThisSession = false;
+let bonusDataSyncedThisSession = false;
+
+const DEFAULT_PRICE_VALUE = 1;
+const DEFAULT_PRODUCTION_BONUS_VALUE = 0;
+const STATUS_CLASS_NAMES = ["status-error", "status-success", "status-info", "status-warning"];
 
 function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
@@ -99,6 +107,78 @@ function getMaterialProductionBonuses() {
     bonuses[material.id] = Math.max(0, num(`material-bonus-${material.id}`));
   }
   return bonuses;
+}
+
+function normalizeSyncTimestamp(value) {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function areAllMaterialValuesEqual(values, expectedValue) {
+  return MATERIALS.every((material) => Math.abs((Number(values[material.id]) || 0) - expectedValue) < 0.000001);
+}
+
+function getSavedDataLabel(syncedAt) {
+  return syncedAt ? ` saved at ${getDisplayTimestamp(syncedAt)}` : "";
+}
+
+function getResultDataWarnings() {
+  const warnings = [];
+  const prices = getPrices();
+  const bonuses = getMaterialProductionBonuses();
+  const allPricesDefault = areAllMaterialValuesEqual(prices, DEFAULT_PRICE_VALUE);
+  const allBonusesDefault = areAllMaterialValuesEqual(bonuses, DEFAULT_PRODUCTION_BONUS_VALUE);
+
+  if (!priceDataSyncedThisSession) {
+    const priceValuesLabel = allPricesDefault ? "default 1.00 price values" : "current price input values";
+    warnings.push(`Prices have not finished syncing from WarEra in this page session; results are using ${priceValuesLabel}${getSavedDataLabel(priceDataSyncedAt)}.`);
+  } else if (allPricesDefault) {
+    warnings.push("All item prices are still the default 1.00; verify price sync or manual prices before relying on revenue/profit.");
+  }
+
+  if (!bonusDataSyncedThisSession) {
+    const bonusValuesLabel = allBonusesDefault ? "default 0% production bonuses" : "current production bonus inputs";
+    warnings.push(`Production bonuses have not been fetched from WarEra in this page session; company output and optimizer results are using ${bonusValuesLabel}${getSavedDataLabel(bonusDataSyncedAt)}.`);
+  } else if (allBonusesDefault) {
+    warnings.push("All production bonuses are still the default 0%; verify bonus sync or manual bonuses before relying on company output.");
+  }
+
+  return warnings;
+}
+
+function setStatusMessage(statusEl, message, tone = "info") {
+  if (!statusEl) {
+    return;
+  }
+
+  statusEl.textContent = message;
+  statusEl.classList.remove(...STATUS_CLASS_NAMES);
+  const statusClass = tone === "error"
+    ? "status-error"
+    : (tone === "success" ? "status-success" : (tone === "warning" ? "status-warning" : "status-info"));
+  statusEl.classList.add(statusClass);
+}
+
+function isRateLimitError(err) {
+  if (!err) {
+    return false;
+  }
+  if (Number(err.status) === 429) {
+    return true;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return /\bHTTP\s*429\b/i.test(message) || isRateLimitError(err.cause);
+}
+
+function getSyncErrorMessage(prefix, err) {
+  if (isRateLimitError(err)) {
+    return `${prefix}: You are being rate limited by the WarEra API. Try again in about a minute.`;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return `${prefix}: ${message}`;
 }
 
 function getConfigFromInputs() {
@@ -542,8 +622,7 @@ function applyPricesToInputs(prices) {
   }
 }
 
-function updateCompareSnapshotsWithPrices(prices) {
-  const savedAt = new Date().toISOString();
+function updateCompareSnapshotsWithPrices(prices, savedAt = new Date().toISOString()) {
   compareState = updateCompareSlotsWithPrices(compareState, prices, savedAt);
   saveCompareState();
 }
@@ -551,7 +630,9 @@ function updateCompareSnapshotsWithPrices(prices) {
 async function fetchLatestPricesFromApi() {
   const response = await fetch(PRICE_API_URL);
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    const error = new Error(`HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
 
   const payload = await response.json();
@@ -589,22 +670,25 @@ async function refreshLatestPrices({
 } = {}) {
   const statusEl = document.getElementById("price-sync-status");
   if (setStatus && statusEl) {
-    statusEl.textContent = statusPrefix;
+    setStatusMessage(statusEl, statusPrefix, "info");
   }
 
   const { prices, updated, missing } = await fetchLatestPricesFromApi();
+  const syncedAt = new Date().toISOString();
+  priceDataSyncedAt = syncedAt;
+  priceDataSyncedThisSession = true;
 
   if (updateCurrentInputs) {
     applyPricesToInputs(prices);
   }
   if (updateCompareSnapshots) {
-    updateCompareSnapshotsWithPrices(prices);
+    updateCompareSnapshotsWithPrices(prices, syncedAt);
   }
   if (rerenderAfter) {
     rerenderFromCurrentState();
   }
   if (setStatus && statusEl) {
-    statusEl.textContent = getPriceSyncSummary(updated, missing);
+    setStatusMessage(statusEl, getPriceSyncSummary(updated, missing), missing.length > 0 ? "warning" : "success");
   }
 
   return { prices, updated, missing };
@@ -621,12 +705,14 @@ function setUserImportStatus(message, tone = "default") {
   }
 
   statusEl.textContent = message;
-  statusEl.classList.remove("hidden", "status-error", "status-success", "status-info");
+  statusEl.classList.remove("hidden", ...STATUS_CLASS_NAMES);
 
   if (tone === "error") {
     statusEl.classList.add("status-error");
   } else if (tone === "success") {
     statusEl.classList.add("status-success");
+  } else if (tone === "warning") {
+    statusEl.classList.add("status-warning");
   } else {
     statusEl.classList.add("status-info");
   }
@@ -775,9 +861,8 @@ async function importUserFromApi() {
       "success",
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     importedScenarioMeta = null;
-    setUserImportStatus(`User import failed: ${message}`, "error");
+    setUserImportStatus(getSyncErrorMessage("User import failed", err), "error");
     clearUserImportSummary();
     console.error("User import failed:", err);
   } finally {
@@ -806,6 +891,10 @@ function saveState() {
     materialProductionBonuses: getMaterialProductionBonuses(),
     companyConfigs: getCompanyConfigs(),
     importMeta: getImportedScenarioMetaSnapshot(),
+    syncMeta: {
+      pricesSyncedAt: priceDataSyncedAt,
+      bonusesSyncedAt: bonusDataSyncedAt,
+    },
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
@@ -821,6 +910,10 @@ function loadState() {
     const p = parsed.prices || {};
     const savedCompanyConfigs = parsed.companyConfigs;
     const savedImportMeta = normalizeImportedScenarioMeta(parsed.importMeta);
+    priceDataSyncedAt = normalizeSyncTimestamp(parsed.syncMeta?.pricesSyncedAt);
+    bonusDataSyncedAt = normalizeSyncTimestamp(parsed.syncMeta?.bonusesSyncedAt);
+    priceDataSyncedThisSession = false;
+    bonusDataSyncedThisSession = false;
 
     const maybeSet = (id, value) => {
       if (value === undefined || value === null) return;
@@ -904,6 +997,10 @@ function loadState() {
     applyImportedScenarioMeta(savedImportMeta);
   } catch (err) {
     console.error("Failed to load saved state:", err);
+    priceDataSyncedAt = null;
+    bonusDataSyncedAt = null;
+    priceDataSyncedThisSession = false;
+    bonusDataSyncedThisSession = false;
     setCompanyConfigs([createDefaultCompanyConfig("iron"), createDefaultCompanyConfig("steel")]);
     setEntrePlanSlotsState([]);
     applyImportedScenarioMeta(null);
@@ -991,11 +1088,8 @@ async function switchCompareScenario() {
         statusPrefix: "Refreshing latest prices for Scenario A and Scenario B...",
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       const statusEl = document.getElementById("price-sync-status");
-      if (statusEl) {
-        statusEl.textContent = `Price sync failed before scenario switch: ${message}`;
-      }
+      setStatusMessage(statusEl, getSyncErrorMessage("Price sync failed before scenario switch", err), "error");
       console.error("Price sync failed before scenario switch:", err);
     }
 
@@ -1034,11 +1128,8 @@ async function syncPricesFromApi() {
       statusPrefix: "Fetching latest prices from WarEra API...",
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     const statusEl = document.getElementById("price-sync-status");
-    if (statusEl) {
-      statusEl.textContent = `Price sync failed: ${message}`;
-    }
+    setStatusMessage(statusEl, getSyncErrorMessage("Price sync failed", err), "error");
     console.error("Price sync failed:", err);
   } finally {
     button.disabled = false;
@@ -1057,9 +1148,7 @@ async function syncProductionBonusesFromApi() {
   const statusEl = document.getElementById("bonus-sync-status");
 
   try {
-    if (statusEl) {
-      statusEl.textContent = "Fetching production bonuses from WarEra API...";
-    }
+    setStatusMessage(statusEl, "Fetching production bonuses from WarEra API...", "info");
 
     const maxBonuses = await fetchMaxMaterialProductionBonuses();
 
@@ -1070,16 +1159,14 @@ async function syncProductionBonusesFromApi() {
       }
     });
 
-    if (statusEl) {
-      statusEl.textContent = "✓ Production bonuses updated from WarEra API";
-    }
+    bonusDataSyncedAt = new Date().toISOString();
+    bonusDataSyncedThisSession = true;
+
+    setStatusMessage(statusEl, "Production bonuses updated from WarEra API.", "success");
 
     rerenderFromCurrentState();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (statusEl) {
-      statusEl.textContent = `Bonus sync failed: ${message}`;
-    }
+    setStatusMessage(statusEl, getSyncErrorMessage("Bonus sync failed", err), "error");
     console.error("Bonus sync failed:", err);
   } finally {
     button.disabled = false;
@@ -1118,6 +1205,7 @@ function init() {
     getAllocationsFromInputs,
     renderEntrepreneurshipPlanEditor,
     getReferenceResult: renderReferenceComparison,
+    getDataWarnings: getResultDataWarnings,
   });
 
   buildMaterialInputs();
@@ -1130,9 +1218,9 @@ function init() {
 
   rerenderFromCurrentState();
 
-  requestAnimationFrame(() => {
+  setTimeout(() => {
     syncPricesFromApi();
-  });
+  }, 250);
 }
 
 init();

@@ -228,6 +228,7 @@ export function buildEntrepreneurshipPlan(activeCompanies, allCompanyConfigs, st
       requestedActiveTotalPer10h: 0,
       effectiveTotalPer10h: 0,
       overCapPer10h: 0,
+      skippedPer10h: 0,
       unassignedPer10h: 0,
       requestedInactiveCompaniesPer10h: 0,
       requestedByCompanyId,
@@ -241,9 +242,11 @@ export function buildEntrepreneurshipPlan(activeCompanies, allCompanyConfigs, st
     let requestedActiveTotalPer10h = 0;
     let effectiveTotalPer10h = 0;
     let requestedInactiveCompaniesPer10h = 0;
+    let requestedTotalPer10h = 0;
 
     for (const company of allCompanyConfigs) {
       const requested = Math.max(0, Math.floor(Number(planOverrideByCompanyId[company.id]) || 0));
+      requestedTotalPer10h += requested;
       if (!activeIds.has(company.id)) {
         requestedInactiveCompaniesPer10h += requested;
       }
@@ -267,6 +270,7 @@ export function buildEntrepreneurshipPlan(activeCompanies, allCompanyConfigs, st
       requestedActiveTotalPer10h,
       effectiveTotalPer10h,
       overCapPer10h: Math.max(0, requestedActiveTotalPer10h - effectiveTotalPer10h),
+      skippedPer10h: Math.max(0, capPer10h - requestedTotalPer10h),
       unassignedPer10h: Math.max(0, capPer10h - effectiveTotalPer10h),
       requestedInactiveCompaniesPer10h,
       requestedByCompanyId,
@@ -278,9 +282,11 @@ export function buildEntrepreneurshipPlan(activeCompanies, allCompanyConfigs, st
   let requestedActiveTotalPer10h = 0;
   let requestedInactiveCompaniesPer10h = 0;
   let effectiveTotalPer10h = 0;
+  let skippedPer10h = Math.max(0, capPer10h - rawSlots.length);
 
   for (const slotCompanyId of rawSlots) {
     if (!slotCompanyId) {
+      skippedPer10h += 1;
       continue;
     }
 
@@ -300,6 +306,7 @@ export function buildEntrepreneurshipPlan(activeCompanies, allCompanyConfigs, st
     requestedActiveTotalPer10h,
     effectiveTotalPer10h,
     overCapPer10h: 0,
+    skippedPer10h,
     unassignedPer10h: Math.max(0, capPer10h - effectiveTotalPer10h),
     requestedInactiveCompaniesPer10h,
     requestedByCompanyId,
@@ -601,6 +608,7 @@ export function simulate(alloc, config) {
     entreActionsRequestedInactiveCompaniesPer10h,
     entreActionsEffectivePer10h: entrepreneurshipPlan.effectiveTotalPer10h,
     entreActionsOverCapPer10h: entrepreneurshipPlan.overCapPer10h,
+    entreActionsSkippedPer10h: entrepreneurshipPlan.skippedPer10h,
     entreActionsUnassignedPer10h: entrepreneurshipPlan.unassignedPer10h,
 
     companyCards,

@@ -81,6 +81,25 @@ test("buildEntrePlanSlotsFromPlan obeys entrepreneurship cap", () => {
   assert.equal(slots.filter(Boolean).length, cap);
 });
 
+test("simulate reports skipped entrepreneurship plan slots", () => {
+  const config = createBaseConfig();
+  const alloc = {
+    energy: 0,
+    entrepreneurship: 4,
+    production: 0,
+    companies: 0,
+    management: 0,
+  };
+  const cap = Math.floor(getStatsForAlloc(alloc).entrepreneurship / 10);
+  config.entrePlanSlots = [1, null];
+
+  const result = simulate(alloc, config);
+
+  assert.equal(cap, 5);
+  assert.equal(result.entreActionsSkippedPer10h, 4);
+  assert.equal(result.entreActionsUnassignedPer10h, 4);
+});
+
 test("optimizeAllocationAndPlan keeps companies and management fixed during skill optimization", () => {
   const config = createBaseConfig();
   const currentAlloc = {

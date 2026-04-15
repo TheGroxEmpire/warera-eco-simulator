@@ -119,6 +119,18 @@ function normalizeApiErrorMessage(payload, fallback) {
   return rawMessage;
 }
 
+export class WareraApiError extends Error {
+  constructor(message, { status = null, method = "", cause = null } = {}) {
+    super(message);
+    this.name = "WareraApiError";
+    this.status = status;
+    this.method = method;
+    if (cause) {
+      this.cause = cause;
+    }
+  }
+}
+
 export function getWareraApiBaseUrl() {
   const pathname = globalThis?.window?.location?.pathname || "";
   const origin = globalThis?.window?.location?.origin || "";
@@ -183,7 +195,10 @@ export async function callWareraApi(method, input, fetchImpl = globalThis.fetch)
   }
 
   if (!response.ok || payload?.error) {
-    throw new Error(normalizeApiErrorMessage(payload, `WarEra API request failed for ${method}${response?.status ? ` (HTTP ${response.status})` : ""}.`));
+    throw new WareraApiError(
+      normalizeApiErrorMessage(payload, `WarEra API request failed for ${method}${response?.status ? ` (HTTP ${response.status})` : ""}.`),
+      { status: response?.status || null, method },
+    );
   }
 
   if (payload?.result?.data === undefined) {
@@ -677,7 +692,11 @@ export async function fetchMaxMaterialProductionBonuses(fetchImpl = globalThis.f
 
     return maxBonusByMaterial;
   } catch (error) {
-    throw new Error(`Failed to fetch production bonuses: ${error.message}`);
+    throw new WareraApiError(`Failed to fetch production bonuses: ${error.message}`, {
+      status: error?.status || null,
+      method: error?.method || "",
+      cause: error,
+    });
   }
 }
 

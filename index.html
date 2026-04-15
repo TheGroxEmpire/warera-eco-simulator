@@ -117,7 +117,9 @@
       <p class="hint">Plan self-work actions per 10h cycle by assigning each action slot to a company. Each action costs 10 Entrepreneurship. Optimizer can optimize this plan for you.</p>
       <p id="entre-plan-summary" class="mono"></p>
       <p id="entre-plan-warning" class="warning hidden"></p>
-      <div id="entre-plan-editor" class="entre-plan-editor"></div>
+      <div id="entre-plan-editor" class="entre-plan-editor">
+        <p class="hint loading-row">Loading entrepreneurship plan...</p>
+      </div>
     </section>
 
     <section class="panel">
@@ -126,7 +128,9 @@
         <button id="sync-prices-btn" type="button" class="secondary-btn">Sync Prices from WarEra API</button>
       </div>
       <p id="price-sync-status" class="hint"></p>
-      <div id="price-grid" class="price-grid"></div>
+      <div id="price-grid" class="price-grid">
+        <p class="hint loading-row">Loading price inputs...</p>
+      </div>
     </section>
 
     <section class="panel">

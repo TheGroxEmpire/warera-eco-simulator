@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   callWareraApi,
+  fetchMaxMaterialProductionBonuses,
   getCountryProductionBonusPct,
   getImportedCompanyProductionBonusPct,
   getRegionDepositProductionBonusPct,
@@ -359,5 +360,36 @@ test("callWareraApi returns a clear message when the browser blocks the request"
       throw new TypeError("Failed to fetch");
     }),
     /Could not reach the WarEra API from the browser/,
+  );
+});
+
+test("callWareraApi preserves HTTP 429 status for rate limits", async () => {
+  await assert.rejects(
+    () => callWareraApi("region.getRegionsObject", undefined, async () => jsonResponse({
+      error: {
+        message: "Too many requests",
+      },
+    }, 429)),
+    (err) => {
+      assert.equal(err.status, 429);
+      assert.equal(err.method, "region.getRegionsObject");
+      assert.match(err.message, /Too many requests/);
+      return true;
+    },
+  );
+});
+
+test("fetchMaxMaterialProductionBonuses preserves rate limit status", async () => {
+  await assert.rejects(
+    () => fetchMaxMaterialProductionBonuses(async () => jsonResponse({
+      error: {
+        message: "Too many requests",
+      },
+    }, 429)),
+    (err) => {
+      assert.equal(err.status, 429);
+      assert.match(err.message, /Failed to fetch production bonuses: Too many requests/);
+      return true;
+    },
   );
 });

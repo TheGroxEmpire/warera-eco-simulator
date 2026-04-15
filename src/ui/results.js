@@ -6,9 +6,28 @@ export function createResultsRenderer({
   getAllocationsFromInputs,
   renderEntrepreneurshipPlanEditor,
   getReferenceResult,
+  getDataWarnings = () => [],
 }) {
   let deferredRenderFrame = 0;
   let renderVersion = 0;
+
+  function formatWarnings(warnings) {
+    return warnings.map((warning) => `⚠ ${warning}`).join("\n");
+  }
+
+  function renderWarningList(warningEl, warnings) {
+    if (!warningEl) {
+      return;
+    }
+
+    if (warnings.length > 0) {
+      warningEl.classList.remove("hidden");
+      warningEl.textContent = formatWarnings(warnings);
+    } else {
+      warningEl.classList.add("hidden");
+      warningEl.textContent = "";
+    }
+  }
 
   function updatePointsSummary(config, alloc) {
     const summaryEl = document.getElementById("points-summary");
@@ -20,11 +39,11 @@ export function createResultsRenderer({
     summaryEl.textContent = `Total points: ${config.totalSkillPoints} | Spent: ${used} | Remaining: ${remaining} | Costs -> E:${costs.energy}, Ent:${costs.entrepreneurship}, P:${costs.production}, C:${costs.companies}, M:${costs.management}`;
 
     if (remaining < 0) {
-      warningEl.classList.remove("hidden");
-      warningEl.textContent = `Spent points exceed total by ${Math.abs(remaining)}. Lower one or more skill levels.`;
+      renderWarningList(warningEl, [
+        `Spent points exceed total by ${Math.abs(remaining)}. Lower one or more skill levels.`,
+      ]);
     } else {
-      warningEl.classList.add("hidden");
-      warningEl.textContent = "";
+      renderWarningList(warningEl, []);
     }
   }
 
@@ -57,6 +76,7 @@ export function createResultsRenderer({
     const capWarnings = [];
     const companyWarnings = [];
     const planWarnings = [];
+    const dataWarnings = getDataWarnings();
 
     if (result.configuredCompanies > result.stats.companies) {
       capWarnings.push(`Configured companies (${result.configuredCompanies}) exceed your companies limit (${result.stats.companies}). Only first ${result.companiesActive} companies are active.`);
@@ -71,6 +91,10 @@ export function createResultsRenderer({
     if (result.entreActionsOverCapPer10h > 0) {
       capWarnings.push(`Entrepreneurship plan exceeds cap by ${fmt(result.entreActionsOverCapPer10h, 2)} actions/10h. Extra actions on later companies are ignored.`);
       planWarnings.push(`Over cap by ${fmt(result.entreActionsOverCapPer10h, 2)} actions/10h; trimmed from later companies.`);
+    }
+    if (result.entreActionsSkippedPer10h > 0) {
+      capWarnings.push(`Entrepreneurship plan has ${fmt(result.entreActionsSkippedPer10h, 2)} skipped action slots per 10h. Skipped slots do not generate company PP.`);
+      planWarnings.push(`Skipped action slots: ${fmt(result.entreActionsSkippedPer10h, 2)} /10h.`);
     }
     if (result.companiesActive <= 0 && result.entreActionsCapPer10h > 0) {
       capWarnings.push("No active company available for entrepreneurship actions. Entrepreneurship PP from self-work is currently 0.");
@@ -90,6 +114,9 @@ export function createResultsRenderer({
     if (result.workersInInactiveCompanies > 0) {
       companyWarnings.push(`${fmt(result.workersInInactiveCompanies, 2)} workers are inactive because their companies are inactive.`);
     }
+    if (Array.isArray(dataWarnings) && dataWarnings.length > 0) {
+      capWarnings.push(...dataWarnings);
+    }
 
     companySummaryEl.textContent = `Configured companies: ${result.configuredCompanies} | Active companies: ${result.companiesActive} | Workers(active requested/effective): ${fmt(result.requestedWorkersActive, 2)} / ${fmt(result.effectiveWorkersActive, 2)} | Inactive workers: ${fmt(result.totalInactiveWorkers, 2)} | Entre actions/10h (cap/requested/effective): ${fmt(result.entreActionsCapPer10h, 2)} / ${fmt(result.entreActionsRequestedPer10h, 2)} / ${fmt(result.entreActionsEffectivePer10h, 2)}`;
 
@@ -97,31 +124,9 @@ export function createResultsRenderer({
       planSummaryEl.textContent = `Entre actions / 10h | Cap: ${fmt(result.entreActionsCapPer10h, 2)} | Requested: ${fmt(result.entreActionsRequestedPer10h, 2)} (Active ${fmt(result.entreActionsRequestedActivePer10h, 2)} + Inactive ${fmt(result.entreActionsRequestedInactiveCompaniesPer10h, 2)}) | Effective: ${fmt(result.entreActionsEffectivePer10h, 2)} | Unassigned: ${fmt(result.entreActionsUnassignedPer10h, 2)}`;
     }
 
-    if (planWarningEl) {
-      if (planWarnings.length > 0) {
-        planWarningEl.classList.remove("hidden");
-        planWarningEl.textContent = planWarnings.join(" ");
-      } else {
-        planWarningEl.classList.add("hidden");
-        planWarningEl.textContent = "";
-      }
-    }
-
-    if (companyWarnings.length > 0) {
-      companyWarningEl.classList.remove("hidden");
-      companyWarningEl.textContent = companyWarnings.join(" ");
-    } else {
-      companyWarningEl.classList.add("hidden");
-      companyWarningEl.textContent = "";
-    }
-
-    if (capWarnings.length > 0) {
-      capsWarningEl.classList.remove("hidden");
-      capsWarningEl.textContent = capWarnings.join(" ");
-    } else {
-      capsWarningEl.classList.add("hidden");
-      capsWarningEl.textContent = "";
-    }
+    renderWarningList(planWarningEl, planWarnings);
+    renderWarningList(companyWarningEl, companyWarnings);
+    renderWarningList(capsWarningEl, capWarnings);
 
     const referenceResult = getReferenceResult();
 

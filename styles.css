@@ -7,7 +7,8 @@
   --muted: #54676a;
   --accent: #0f8a76;
   --accent-strong: #0a6a5c;
-  --warn: #b63a2f;
+  --warn: #8a5a00;
+  --danger: #b63a2f;
   --line: rgba(35, 51, 55, 0.15);
 }
 
@@ -260,12 +261,13 @@ button:hover {
 }
 
 .warning {
-  border: 1px solid rgba(182, 58, 47, 0.35);
+  border: 1px solid rgba(138, 90, 0, 0.35);
   border-radius: 10px;
-  background: rgba(182, 58, 47, 0.08);
+  background: rgba(255, 193, 7, 0.13);
   color: var(--warn);
   padding: 0.65rem 0.75rem;
   font-size: 0.9rem;
+  white-space: pre-line;
 }
 
 .hidden {
@@ -279,20 +281,34 @@ button:hover {
 }
 
 .status-error {
-  color: var(--warn);
-  border-color: rgba(182, 58, 47, 0.35);
+  border: 1px solid rgba(182, 58, 47, 0.35);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  color: var(--danger);
   background: rgba(182, 58, 47, 0.08);
 }
 
 .status-success {
+  border: 1px solid rgba(15, 138, 118, 0.28);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
   color: var(--accent-strong);
-  border-color: rgba(15, 138, 118, 0.28);
   background: rgba(15, 138, 118, 0.08);
 }
 
+.status-warning {
+  border: 1px solid rgba(138, 90, 0, 0.35);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  color: var(--warn);
+  background: rgba(255, 193, 7, 0.13);
+}
+
 .status-info {
+  border: 1px solid rgba(35, 51, 55, 0.18);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
   color: var(--ink);
-  border-color: rgba(35, 51, 55, 0.18);
   background: rgba(255, 255, 255, 0.78);
 }
 
@@ -438,6 +454,15 @@ button:hover {
 
 .worker-empty {
   margin: 0;
+}
+
+.loading-row {
+  margin: 0;
+  color: var(--muted);
+}
+
+.price-grid .loading-row {
+  grid-column: 1 / -1;
 }
 
 .entre-plan-editor {
