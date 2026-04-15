@@ -13,6 +13,29 @@ import {
   simulate,
 } from "./simulation.js?v=20260330-09";
 
+function getProductionBonusForSpecialization(materialBonuses, specialization, fallback = 0) {
+  const bonus = Number(materialBonuses?.[specialization]);
+  if (Number.isFinite(bonus)) {
+    return Math.max(0, bonus);
+  }
+  return Math.max(0, Number(fallback) || 0);
+}
+
+function applySpecializationsToCompanyConfigs(companyConfigs, specializations = {}, materialBonuses = {}) {
+  return (Array.isArray(companyConfigs) ? companyConfigs : []).map((company) => {
+    const specialization = specializations[company.id] || company.specialization;
+    return {
+      ...company,
+      specialization,
+      productionBonusPct: getProductionBonusForSpecialization(
+        materialBonuses,
+        specialization,
+        company.productionBonusPct,
+      ),
+    };
+  });
+}
+
 export function exactOptimizeEntrePlanForAlloc(alloc, config) {
   const stats = getStatsForAlloc(alloc);
   const activeCompanies = getActiveCompaniesForAlloc(alloc, config);
@@ -186,86 +209,73 @@ export function heuristicOptimizeCompanySpecializations(alloc, config, companies
   }
 
   const materialIds = MATERIALS.map((m) => m.id);
-  const bestSpecializations = {};
+  const baseCompanyConfigs = Array.isArray(config.companyConfigs) && config.companyConfigs.length > 0
+    ? config.companyConfigs
+    : companies;
+  let bestSpecializations = {};
   let checked = 0;
 
-  // Initialize with current specializations
   for (const company of companies) {
     bestSpecializations[company.id] = company.specialization;
   }
 
-  // Evaluate baseline (current specializations)
-  let modifiedCompanies = companies.map((company) => {
-    const materialBonus = config.materialProductionBonuses?.[company.specialization] || 0;
+  const buildConfigForSpecializations = (specializations) => {
+    const modifiedCompanies = applySpecializationsToCompanyConfigs(
+      baseCompanyConfigs,
+      specializations,
+      config.materialProductionBonuses,
+    );
     return {
-      ...company,
-      specialization: bestSpecializations[company.id],
-      productionBonusPct: materialBonus,
+      ...config,
+      configuredCompanies: modifiedCompanies.length,
+      companyConfigs: modifiedCompanies,
     };
-  });
-  let modifiedConfig = {
-    ...config,
-    companyConfigs: modifiedCompanies,
   };
-  let bestResult = simulate(alloc, modifiedConfig);
+
+  let bestResult = simulate(alloc, buildConfigForSpecializations(bestSpecializations));
   let bestScore = objectiveScore(bestResult, config.objective);
   checked += 1;
 
-  // Greedy hill climbing: try each material for each company and keep improvements
+  const baselineSpecializations = { ...bestSpecializations };
+  const baselineScore = bestScore;
+  const baselineResult = bestResult;
+
   let improved = true;
   while (improved) {
     improved = false;
-    
+
     for (const company of companies) {
       const originalSpec = bestSpecializations[company.id];
-      
-      // Try each material for this company
+
       for (const materialId of materialIds) {
         if (materialId === originalSpec) {
-          continue; // Skip if same as current
+          continue;
         }
-        
-        // Try this assignment
-        bestSpecializations[company.id] = materialId;
-        
-        // Create modified config with trial assignment + material bonuses
-        modifiedCompanies = companies.map((c) => {
-          const materialBonus = config.materialProductionBonuses?.[bestSpecializations[c.id]] || 0;
-          return {
-            ...c,
-            specialization: bestSpecializations[c.id],
-            productionBonusPct: materialBonus,
-          };
-        });
-        modifiedConfig = {
-          ...config,
-          companyConfigs: modifiedCompanies,
+
+        const trialSpecializations = {
+          ...bestSpecializations,
+          [company.id]: materialId,
         };
-        
-        const trialResult = simulate(alloc, modifiedConfig);
+        const trialResult = simulate(alloc, buildConfigForSpecializations(trialSpecializations));
         const trialScore = objectiveScore(trialResult, config.objective);
         checked += 1;
-        
-        // Keep if improvement found
+
         if (trialScore > bestScore) {
+          bestSpecializations = trialSpecializations;
           bestScore = trialScore;
           bestResult = trialResult;
           improved = true;
-          break; // Move to next company once improvement found
+          break;
         }
-      }
-      
-      // If no improvement found for this company, revert to best
-      if (bestSpecializations[company.id] !== originalSpec && !improved) {
-        bestSpecializations[company.id] = originalSpec;
       }
     }
   }
 
+  const foundImprovement = bestScore > baselineScore;
   return {
-    bestSpecializations,
-    bestResult,
-    bestScore,
+    bestSpecializations: foundImprovement ? bestSpecializations : baselineSpecializations,
+    bestResult: foundImprovement ? bestResult : baselineResult,
+    bestScore: foundImprovement ? bestScore : baselineScore,
     checked,
   };
 }
@@ -371,30 +381,74 @@ export function optimizeAllocationAndPlan({
     evaluateCandidate(currentAlloc, optimizeEntrePlan ? "exact" : null);
   }
 
-  // Optimize company specializations if requested
   let bestCompanySpecializations = null;
   let bestCompanyResult = bestResult;
   let bestCompanyScore = bestScore;
-  let bestCompanyConfig = null;
   let checkedCompanySpecs = 0;
 
-  if (optimizeCompany && Array.isArray(companies) && companies.length > 0) {
-    // Use heuristic company optimization for speed (exact would be exponential)
-    // We need to pass a config that includes the current companies
-    const configForCompany = { ...config, companyConfigs: companies };
-    const companyOpt = heuristicOptimizeCompanySpecializations(bestAlloc || currentAlloc, configForCompany, companies);
+  const companyConfigsForOptimization = Array.isArray(companies) ? companies : config.companyConfigs;
+  if (optimizeCompany && Array.isArray(companyConfigsForOptimization) && companyConfigsForOptimization.length > 0) {
+    const allocForCompany = bestAlloc || currentAlloc;
+    const baseCompanyConfigs = applySpecializationsToCompanyConfigs(
+      companyConfigsForOptimization,
+      {},
+      config.materialProductionBonuses,
+    );
+    const configForCompany = {
+      ...config,
+      configuredCompanies: baseCompanyConfigs.length,
+      companyConfigs: baseCompanyConfigs,
+      ...(optimizeEntrePlan && bestPlanByCompanyId
+        ? { manualPlanOverrideByCompanyId: bestPlanByCompanyId }
+        : {}),
+    };
+    const activeCompanies = getActiveCompaniesForAlloc(allocForCompany, configForCompany);
+    const companyOpt = heuristicOptimizeCompanySpecializations(allocForCompany, configForCompany, activeCompanies);
     checkedCompanySpecs = companyOpt.checked;
+
     if (companyOpt.bestScore > bestCompanyScore) {
       bestCompanyScore = companyOpt.bestScore;
       bestCompanyResult = companyOpt.bestResult;
       bestCompanySpecializations = companyOpt.bestSpecializations;
-      bestCompanyConfig = configForCompany;
+
+      if (optimizeEntrePlan) {
+        const optimizedCompanyConfigs = applySpecializationsToCompanyConfigs(
+          baseCompanyConfigs,
+          companyOpt.bestSpecializations,
+          config.materialProductionBonuses,
+        );
+        const configForPlanAfterCompany = {
+          ...config,
+          configuredCompanies: optimizedCompanyConfigs.length,
+          companyConfigs: optimizedCompanyConfigs,
+        };
+        const planResult = effectiveOptimizeSkill
+          ? heuristicOptimizeEntrePlanForAlloc(allocForCompany, configForPlanAfterCompany)
+          : exactOptimizeEntrePlanForAlloc(allocForCompany, configForPlanAfterCompany);
+        const planScore = objectiveScore(planResult.bestResult, config.objective);
+        checkedEntrePlanStates += planResult.checked;
+
+        if (planScore >= bestCompanyScore) {
+          bestCompanyScore = planScore;
+          bestCompanyResult = planResult.bestResult;
+          bestPlanByCompanyId = planResult.bestPlan;
+        }
+      }
     }
   }
 
-  const modeLabel = effectiveOptimizeSkill && optimizeEntrePlan
-    ? "skills + entrepreneurship plan"
-    : (effectiveOptimizeSkill ? "skills only" : "entrepreneurship plan only");
+  if (bestCompanyScore < bestScore) {
+    console.warn("Company optimization produced worse result than skill optimization, reverting");
+    bestCompanyScore = bestScore;
+    bestCompanyResult = bestResult;
+    bestCompanySpecializations = null;
+  }
+
+  const modeParts = [];
+  if (effectiveOptimizeSkill) modeParts.push("skills");
+  if (optimizeCompany) modeParts.push("company specializations");
+  if (optimizeEntrePlan) modeParts.push("entrepreneurship plan");
+  const modeLabel = modeParts.join(" + ");
 
   const planMethod = optimizeEntrePlan
     ? (effectiveOptimizeSkill ? "heuristic inside skill search" : "exact plan search")

@@ -50,6 +50,7 @@ const {
 } = companyState;
 let editorUI = null;
 let resultsRenderer = null;
+let companyEditorFrame = 0;
 
 function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
@@ -244,7 +245,7 @@ function captureSnapshotFromInputs() {
       companyUtilization: document.getElementById("company-utilization").value,
       ownWage: document.getElementById("own-wage").value,
       optimizeSkill: document.getElementById("optimize-skill-toggle")?.checked !== false,
-      optimizeFactory: document.getElementById("optimize-factory-toggle")?.checked === true,
+      optimizeCompany: document.getElementById("optimize-company-toggle")?.checked === true,
       optimizeEntrePlan: document.getElementById("optimize-entre-plan-toggle")?.checked === true,
       entrePlanSlots: getEntrePlanSlotsState(),
       objective: document.getElementById("objective").value,
@@ -329,10 +330,12 @@ function applySnapshotToInputs(snapshot, shouldRerender = true) {
   }
   setCompanyConfigs(normalized.companyConfigs, {}, { allowEmpty: normalized.hasCompanyConfigs === true });
   applyImportedScenarioMeta(normalized.importMeta);
-  renderCompanyEditor();
   buildMaterialBonusInputs();
   if (shouldRerender) {
+    renderCompanyEditor();
     rerenderFromCurrentState();
+  } else {
+    scheduleCompanyEditorRender();
   }
 }
 
@@ -414,6 +417,27 @@ function applyEntrePlanToState(planByCompanyId, alloc, config) {
 }
 
 function optimizeAllocation() {
+  const optimizerStatusEl = document.getElementById("optimizer-status");
+  const optimizeBtn = document.getElementById("optimize-btn");
+  if (optimizerStatusEl) {
+    optimizerStatusEl.textContent = "Optimizing...";
+  }
+  if (optimizeBtn) {
+    optimizeBtn.disabled = true;
+  }
+
+  requestAnimationFrame(() => {
+    try {
+      runOptimizeAllocation();
+    } finally {
+      if (optimizeBtn) {
+        optimizeBtn.disabled = false;
+      }
+    }
+  });
+}
+
+function runOptimizeAllocation() {
   const config = getConfigFromInputs();
   const currentAlloc = getAllocationsFromInputs();
   const companies = getCompanyConfigs();
@@ -454,19 +478,20 @@ function optimizeAllocation() {
     renderCompanyEditor();
   }
 
-  // Show status message
   const statusParts = [];
-  if (optimization.bestAlloc) statusParts.push("Skills");
+  if (optimizeSkill) statusParts.push("skills");
+  if (optimizeCompany) statusParts.push("company specializations");
+  if (optimizeEntrePlan) statusParts.push("entrepreneurship plan");
+  const appliedParts = [];
+  if (optimizeSkill && optimization.bestAlloc) appliedParts.push("skill allocation");
   if (optimizeCompany && optimization.bestCompanySpecializations && Object.keys(optimization.bestCompanySpecializations).length > 0) {
-    statusParts.push("Company specializations");
+    appliedParts.push("company specializations");
   }
-  if (optimizeEntrePlan && optimization.bestPlanByCompanyId) statusParts.push("Entrepreneurship plan");
-  
-  if (statusParts.length > 0) {
-    optimizerStatusEl.textContent = `Optimized: ${statusParts.join(", ")}. Checked ${optimization.checkedSkillAllocs || 0} skill allocs, ${optimization.checkedCompanySpecs || 0} company specs, ${optimization.checkedEntrePlanStates || 0} plan states.`;
-  } else {
-    optimizerStatusEl.textContent = "No changes found - current configuration is already optimal.";
-  }
+  if (optimizeEntrePlan && optimization.bestPlanByCompanyId) appliedParts.push("entrepreneurship plan");
+  const appliedText = appliedParts.length > 0
+    ? ` Applied ${appliedParts.join(", ")}.`
+    : " No changes were needed.";
+  optimizerStatusEl.textContent = `Optimizer finished for ${statusParts.join(", ")}.${appliedText} Checked ${optimization.checkedSkillAllocs || 0} skill allocs, ${optimization.checkedCompanySpecs || 0} company specs, ${optimization.checkedEntrePlanStates || 0} plan states.`;
 
   rerenderFromCurrentState();
 }
@@ -901,6 +926,16 @@ function renderCompanyEditor() {
   editorUI?.renderCompanyEditor();
 }
 
+function scheduleCompanyEditorRender() {
+  if (companyEditorFrame) {
+    cancelAnimationFrame(companyEditorFrame);
+  }
+  companyEditorFrame = requestAnimationFrame(() => {
+    companyEditorFrame = 0;
+    renderCompanyEditor();
+  });
+}
+
 function rerenderFromCurrentState() {
   const result = simulate(getAllocationsFromInputs(), getConfigFromInputs());
   render(result);
@@ -1091,11 +1126,13 @@ function init() {
   loadState();
   loadCompareState();
   applySnapshotToInputs(compareState.slots[compareState.active], false);
-  renderCompanyEditor();
   bindEvents();
 
   rerenderFromCurrentState();
-  syncPricesFromApi();
+
+  requestAnimationFrame(() => {
+    syncPricesFromApi();
+  });
 }
 
 init();

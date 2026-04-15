@@ -10,32 +10,45 @@ export function createEditorUI({
 }) {
   function buildMaterialInputs() {
     const priceGrid = document.getElementById("price-grid");
-    priceGrid.innerHTML = MATERIALS.map((material) => `
-      <label class="price-row">
+    if (!priceGrid) return;
+
+    const fragment = document.createDocumentFragment();
+    for (const material of MATERIALS) {
+      const label = document.createElement("label");
+      label.className = "price-row";
+      label.innerHTML = `
         <img class="item-icon" src="${getItemImagePath(material.id)}" alt="${material.name} icon" loading="lazy">
         <span>${material.name} Price</span>
         <div class="price-input-wrap">
           <input id="price-${material.id}" type="number" min="0" step="0.01" value="1">
         </div>
-      </label>
-    `).join("");
+      `;
+      fragment.appendChild(label);
+    }
+    priceGrid.innerHTML = "";
+    priceGrid.appendChild(fragment);
   }
 
   function buildMaterialBonusInputs() {
     const bonusGrid = document.getElementById("bonus-grid");
     if (!bonusGrid) return;
-    bonusGrid.innerHTML = MATERIALS.map((material) => {
+
+    const fragment = document.createDocumentFragment();
+    for (const material of MATERIALS) {
       const currentValue = document.getElementById(`material-bonus-${material.id}`)?.value || "0";
-      return `
-      <label class="price-row">
+      const label = document.createElement("label");
+      label.className = "price-row";
+      label.innerHTML = `
         <img class="item-icon" src="${getItemImagePath(material.id)}" alt="${material.name} icon" loading="lazy">
         <span>${material.name} Bonus %</span>
         <div class="price-input-wrap">
           <input id="material-bonus-${material.id}" type="number" min="0" step="0.1" value="${currentValue}">
         </div>
-      </label>
-    `;
-    }).join("");
+      `;
+      fragment.appendChild(label);
+    }
+    bonusGrid.innerHTML = "";
+    bonusGrid.appendChild(fragment);
   }
 
   function syncEntrePlanSlotsForCurrentContext(config, alloc) {
@@ -111,7 +124,7 @@ export function createEditorUI({
       return;
     }
 
-    editorEl.innerHTML = companyConfigsState.map((company, index) => {
+    const htmlParts = companyConfigsState.map((company, index) => {
       const material = MATERIAL_MAP.get(company.specialization) || MATERIALS[0];
       const workers = Array.isArray(company.workers) ? company.workers : [];
       const isActive = activeCompanyIds.has(company.id);
@@ -169,6 +182,7 @@ export function createEditorUI({
       `;
     }).join("");
 
+    editorEl.innerHTML = htmlParts;
     renderEntrepreneurshipPlanEditor();
   }
 

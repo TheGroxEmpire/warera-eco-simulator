@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { MATERIALS } from "../src/config/constants.js";
-import { optimizeAllocationAndPlan } from "../src/core/optimizer.js";
+import { heuristicOptimizeCompanySpecializations, optimizeAllocationAndPlan } from "../src/core/optimizer.js";
 import { buildEntrePlanSlotsFromPlan, getStatsForAlloc, simulate } from "../src/core/simulation.js";
 
 function createPriceMap(value = 1) {
@@ -103,4 +103,38 @@ test("optimizeAllocationAndPlan keeps companies and management fixed during skil
   assert.equal(optimization.bestAlloc.companies, currentAlloc.companies);
   assert.equal(optimization.bestAlloc.management, currentAlloc.management);
   assert.ok(Number.isFinite(optimization.bestScore));
+});
+
+test("heuristic company optimizer returns specializations that match its best score", () => {
+  const prices = createPriceMap(0);
+  prices.limestone = 10;
+  prices.iron = 1;
+
+  const companyConfigs = [createCompany(1, "iron"), createCompany(2, "limestone")];
+  const config = {
+    ...createBaseConfig(),
+    companyConfigs,
+    configuredCompanies: companyConfigs.length,
+    prices,
+  };
+  const alloc = {
+    energy: 0,
+    entrepreneurship: 0,
+    production: 0,
+    companies: 0,
+    management: 0,
+  };
+
+  const optimization = heuristicOptimizeCompanySpecializations(alloc, config, companyConfigs);
+  const resultForReturnedSpecializations = simulate(alloc, {
+    ...config,
+    companyConfigs: companyConfigs.map((company) => ({
+      ...company,
+      specialization: optimization.bestSpecializations[company.id] || company.specialization,
+    })),
+  });
+
+  assert.equal(optimization.bestSpecializations[1], "limestone");
+  assert.equal(optimization.bestSpecializations[2], "limestone");
+  assert.equal(resultForReturnedSpecializations.netProfitDay, optimization.bestScore);
 });

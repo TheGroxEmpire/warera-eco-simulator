@@ -7,6 +7,9 @@ export function createResultsRenderer({
   renderEntrepreneurshipPlanEditor,
   getReferenceResult,
 }) {
+  let deferredRenderFrame = 0;
+  let renderVersion = 0;
+
   function updatePointsSummary(config, alloc) {
     const summaryEl = document.getElementById("points-summary");
     const warningEl = document.getElementById("allocation-warning");
@@ -26,11 +29,26 @@ export function createResultsRenderer({
   }
 
   function render(result) {
-    renderEntrepreneurshipPlanEditor();
     const config = getConfigFromInputs();
     const alloc = getAllocationsFromInputs();
     updatePointsSummary(config, alloc);
+    renderEntrepreneurshipPlanEditor();
 
+    renderVersion += 1;
+    const thisRenderVersion = renderVersion;
+    if (deferredRenderFrame) {
+      cancelAnimationFrame(deferredRenderFrame);
+    }
+    deferredRenderFrame = requestAnimationFrame(() => {
+      deferredRenderFrame = 0;
+      if (thisRenderVersion !== renderVersion) {
+        return;
+      }
+      renderDeferred(result);
+    });
+  }
+
+  function renderDeferred(result) {
     const capsWarningEl = document.getElementById("caps-warning");
     const companySummaryEl = document.getElementById("company-summary");
     const companyWarningEl = document.getElementById("company-warning");
