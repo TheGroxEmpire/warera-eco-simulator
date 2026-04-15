@@ -19,7 +19,7 @@ import {
 } from "./core/simulation.js?v=20260330-09";
 import { fmt } from "./core/math.js?v=20260330-09";
 import { optimizeAllocationAndPlan } from "./core/optimizer.js?v=20260330-09";
-import { importWareraUserData } from "./integrations/warera-import.js?v=20260330-09";
+import { importWareraUserData, fetchMaxMaterialProductionBonuses } from "./integrations/warera-import.js?v=20260330-09";
 import {
   copySnapshotToOtherCompareSlot,
   getOtherCompareSlot,
@@ -103,7 +103,14 @@ function getMaterialProductionBonuses() {
 function getConfigFromInputs() {
   const level = Math.max(1, intNum("level", 1));
   const objective = document.getElementById("objective").value;
-  const companyConfigs = getCompanyConfigs();
+  const materialProductionBonuses = getMaterialProductionBonuses();
+  
+  // Apply material production bonuses to companies based on their specialization
+  const companyConfigs = getCompanyConfigs().map((company) => ({
+    ...company,
+    productionBonusPct: materialProductionBonuses[company.specialization] || 0,
+  }));
+  
   const configuredCompanies = companyConfigs.length;
   const totalWorkersConfigured = companyConfigs.reduce((sum, company) => sum + workerCount(company), 0);
 
@@ -120,7 +127,7 @@ function getConfigFromInputs() {
     totalWorkersConfigured,
     companyConfigs,
     prices: getPrices(),
-    materialProductionBonuses: getMaterialProductionBonuses(),
+    materialProductionBonuses,
   };
 }
 
@@ -207,7 +214,7 @@ function normalizeSnapshot(raw) {
       companyUtilization: clamp(Number(config.companyUtilization) || 0, 0, 100),
       ownWage: Math.max(0, Number(config.ownWage) || 0),
       optimizeSkill: config.optimizeSkill !== false,
-      optimizeFactory: config.optimizeFactory === true,
+      optimizeCompany: config.optimizeCompany === true,
       optimizeEntrePlan: config.optimizeEntrePlan === true,
       entrePlanSlots: sanitizeEntrePlanSlots(config.entrePlanSlots),
       objective,
@@ -252,9 +259,16 @@ function captureSnapshotFromInputs() {
 
 function buildConfigFromSnapshot(snapshot) {
   const level = Math.max(1, Math.floor(Number(snapshot?.config?.level) || 1));
+  const materialProductionBonuses = snapshot?.materialProductionBonuses || {};
+  
+  // Apply material production bonuses to companies based on their specialization
   const companyConfigs = Array.isArray(snapshot?.companyConfigs)
-    ? snapshot.companyConfigs.map((company) => sanitizeCompanyConfig(company))
+    ? snapshot.companyConfigs.map((company) => ({
+      ...sanitizeCompanyConfig(company),
+      productionBonusPct: materialProductionBonuses[company.specialization] || 0,
+    }))
     : [];
+  
   const configuredCompanies = companyConfigs.length;
   const totalWorkersConfigured = companyConfigs.reduce((sum, company) => sum + workerCount(company), 0);
   const prices = {};
@@ -275,6 +289,7 @@ function buildConfigFromSnapshot(snapshot) {
     totalWorkersConfigured,
     companyConfigs,
     prices,
+    materialProductionBonuses,
   };
 }
 
@@ -301,10 +316,10 @@ function applySnapshotToInputs(snapshot, shouldRerender = true) {
   setValue("own-wage", normalized.config.ownWage);
   setValue("objective", normalized.config.objective);
   const optimizeSkillToggle = document.getElementById("optimize-skill-toggle");
-  const optimizeFactoryToggle = document.getElementById("optimize-factory-toggle");
+  const optimizeCompanyToggle = document.getElementById("optimize-company-toggle");
   const optimizeEntrePlanToggle = document.getElementById("optimize-entre-plan-toggle");
   if (optimizeSkillToggle) optimizeSkillToggle.checked = normalized.config.optimizeSkill !== false;
-  if (optimizeFactoryToggle) optimizeFactoryToggle.checked = normalized.config.optimizeFactory === true;
+  if (optimizeCompanyToggle) optimizeCompanyToggle.checked = normalized.config.optimizeCompany === true;
   if (optimizeEntrePlanToggle) optimizeEntrePlanToggle.checked = normalized.config.optimizeEntrePlan === true;
   setEntrePlanSlotsState(normalized.config.entrePlanSlots);
   setAllocationsToInputs(normalized.alloc);
@@ -403,7 +418,7 @@ function optimizeAllocation() {
   const currentAlloc = getAllocationsFromInputs();
   const companies = getCompanyConfigs();
   const optimizeSkill = document.getElementById("optimize-skill-toggle")?.checked === true;
-  const optimizeFactory = document.getElementById("optimize-factory-toggle")?.checked === true;
+  const optimizeCompany = document.getElementById("optimize-company-toggle")?.checked === true;
   const optimizeEntrePlan = document.getElementById("optimize-entre-plan-toggle")?.checked === true;
   const optimizerStatusEl = document.getElementById("optimizer-status");
 
@@ -411,7 +426,7 @@ function optimizeAllocation() {
     config,
     currentAlloc,
     optimizeSkill,
-    optimizeFactory,
+    optimizeCompany,
     optimizeEntrePlan,
     companies,
   });
@@ -424,12 +439,12 @@ function optimizeAllocation() {
   if (optimization.bestAlloc) {
     setAllocationsToInputs(optimization.bestAlloc);
   }
-  if (optimizeFactory && optimization.bestFactorySpecializations) {
+  if (optimizeCompany && optimization.bestCompanySpecializations) {
     // Apply optimized specializations to companies
     const companyConfigsState = getCompanyConfigsMutable();
     for (const company of companyConfigsState) {
-      if (optimization.bestFactorySpecializations[company.id]) {
-        company.specialization = optimization.bestFactorySpecializations[company.id];
+      if (optimization.bestCompanySpecializations[company.id]) {
+        company.specialization = optimization.bestCompanySpecializations[company.id];
       }
     }
     renderCompanyEditor();
@@ -442,13 +457,13 @@ function optimizeAllocation() {
   // Show status message
   const statusParts = [];
   if (optimization.bestAlloc) statusParts.push("Skills");
-  if (optimizeFactory && optimization.bestFactorySpecializations && Object.keys(optimization.bestFactorySpecializations).length > 0) {
-    statusParts.push("Factory specializations");
+  if (optimizeCompany && optimization.bestCompanySpecializations && Object.keys(optimization.bestCompanySpecializations).length > 0) {
+    statusParts.push("Company specializations");
   }
   if (optimizeEntrePlan && optimization.bestPlanByCompanyId) statusParts.push("Entrepreneurship plan");
   
   if (statusParts.length > 0) {
-    optimizerStatusEl.textContent = `Optimized: ${statusParts.join(", ")}. Checked ${optimization.checkedSkillAllocs || 0} skill allocs, ${optimization.checkedFactorySpecs || 0} factory specs, ${optimization.checkedEntrePlanStates || 0} plan states.`;
+    optimizerStatusEl.textContent = `Optimized: ${statusParts.join(", ")}. Checked ${optimization.checkedSkillAllocs || 0} skill allocs, ${optimization.checkedCompanySpecs || 0} company specs, ${optimization.checkedEntrePlanStates || 0} plan states.`;
   } else {
     optimizerStatusEl.textContent = "No changes found - current configuration is already optimal.";
   }
@@ -699,7 +714,7 @@ async function importUserFromApi() {
 
   try {
     const imported = await importWareraUserData(searchInput.value);
-    const successMessagePrefix = `Imported ${imported.user.username}. Skills, level, companies, worker stats, company production bonuses from country, region, and ruling party data, and company wages were refreshed. Your own wage stays manual.`;
+    const successMessagePrefix = `Imported ${imported.user.username}. Skills, level, companies, worker stats, company production bonuses from country, region, and ruling party data, company wages, and maximum material production bonuses were refreshed. Your own wage stays manual.`;
 
     document.getElementById("level").value = String(imported.level);
     setAllocationsToInputs(imported.alloc);
@@ -724,6 +739,10 @@ async function importUserFromApi() {
       statusTone: "success",
     });
     renderCompanyEditor();
+    
+    // Sync production bonuses after importing profile for consistency
+    await syncProductionBonusesFromApi();
+    
     rerenderFromCurrentState();
 
     setUserImportStatus(
@@ -752,7 +771,7 @@ function saveState() {
       companyUtilization: document.getElementById("company-utilization").value,
       ownWage: document.getElementById("own-wage").value,
       optimizeSkill: document.getElementById("optimize-skill-toggle")?.checked !== false,
-      optimizeFactory: document.getElementById("optimize-factory-toggle")?.checked === true,
+      optimizeCompany: document.getElementById("optimize-company-toggle")?.checked === true,
       optimizeEntrePlan: document.getElementById("optimize-entre-plan-toggle")?.checked === true,
       entrePlanSlots: getEntrePlanSlotsState(),
       objective: document.getElementById("objective").value,
@@ -809,10 +828,10 @@ function loadState() {
     maybeSet("own-wage", c.ownWage);
     maybeSet("objective", c.objective);
     const optimizeSkillToggle = document.getElementById("optimize-skill-toggle");
-    const optimizeFactoryToggle = document.getElementById("optimize-factory-toggle");
+    const optimizeCompanyToggle = document.getElementById("optimize-company-toggle");
     const optimizeEntrePlanToggle = document.getElementById("optimize-entre-plan-toggle");
     if (optimizeSkillToggle) optimizeSkillToggle.checked = c.optimizeSkill !== false;
-    if (optimizeFactoryToggle) optimizeFactoryToggle.checked = c.optimizeFactory === true;
+    if (optimizeCompanyToggle) optimizeCompanyToggle.checked = c.optimizeCompany === true;
     if (optimizeEntrePlanToggle) optimizeEntrePlanToggle.checked = c.optimizeEntrePlan === true;
     if (!OBJECTIVES[document.getElementById("objective").value]) {
       document.getElementById("objective").value = DEFAULT_OBJECTIVE_KEY;
@@ -992,6 +1011,47 @@ async function syncPricesFromApi() {
   }
 }
 
+async function syncProductionBonusesFromApi() {
+  const button = document.getElementById("sync-bonuses-btn");
+  if (!button) return;
+
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "Syncing...";
+
+  const statusEl = document.getElementById("bonus-sync-status");
+
+  try {
+    if (statusEl) {
+      statusEl.textContent = "Fetching production bonuses from WarEra API...";
+    }
+
+    const maxBonuses = await fetchMaxMaterialProductionBonuses();
+
+    MATERIALS.forEach((material) => {
+      const inputEl = document.getElementById(`material-bonus-${material.id}`);
+      if (inputEl && maxBonuses[material.id]) {
+        inputEl.value = maxBonuses[material.id];
+      }
+    });
+
+    if (statusEl) {
+      statusEl.textContent = "✓ Production bonuses updated from WarEra API";
+    }
+
+    rerenderFromCurrentState();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (statusEl) {
+      statusEl.textContent = `Bonus sync failed: ${message}`;
+    }
+    console.error("Bonus sync failed:", err);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
+}
+
 function bindEvents() {
   bindUiEvents({
     getCompanyConfigsMutable,
@@ -1003,6 +1063,7 @@ function bindEvents() {
     rerenderFromCurrentState,
     optimizeAllocation,
     syncPricesFromApi,
+    syncProductionBonusesFromApi,
     importUserFromApi,
     copyCurrentScenarioToOtherSlot,
     switchCompareScenario,

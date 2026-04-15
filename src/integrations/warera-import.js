@@ -1,4 +1,4 @@
-import { MATERIAL_MAP } from "../config/constants.js?v=20260330-09";
+import { MATERIAL_MAP, MATERIALS } from "../config/constants.js?v=20260330-09";
 
 const WARERA_API_REMOTE_BASE_URL = "https://api2.warera.io/trpc";
 const DIRECT_USER_ID_PATTERN = /^[a-f0-9]{24}$/i;
@@ -604,6 +604,81 @@ async function fetchImportedCompanies(userLite, fetchImpl) {
     companiesSkipped,
     warnings,
   };
+}
+
+export async function fetchMaxMaterialProductionBonuses(fetchImpl = globalThis.fetch) {
+  try {
+    const [countries, regionsData] = await Promise.all([
+      callWareraApi("country.getAllCountries", undefined, fetchImpl),
+      callWareraApi("region.getRegionsObject", undefined, fetchImpl),
+    ]);
+
+    const countriesById = new Map(
+      (Array.isArray(countries) ? countries : [])
+        .filter((country) => country?._id)
+        .map((country) => [country._id, country]),
+    );
+
+    const regionsById = regionsData && typeof regionsData === "object" ? regionsData : {};
+
+    // Collect unique party IDs that we need to fetch
+    const partyIds = [...new Set(
+      Array.from(countriesById.values())
+        .map((country) => country?.rulingParty)
+        .filter(Boolean),
+    )];
+
+    // Fetch all relevant parties
+    let partiesById = new Map();
+    if (partyIds.length > 0) {
+      const partyResults = await Promise.allSettled(
+        partyIds.map((partyId) => callWareraApi("party.getById", { partyId }, fetchImpl)),
+      );
+
+      for (let index = 0; index < partyResults.length; index += 1) {
+        const result = partyResults[index];
+        const partyId = partyIds[index];
+        if (result.status === "fulfilled") {
+          partiesById.set(partyId, result.value);
+        }
+      }
+    }
+
+    const maxBonusByMaterial = {};
+    const now = new Date();
+
+    // For each material, find the maximum bonus available across all regions
+    MATERIALS.forEach((material) => {
+      let maxBonus = 0;
+
+      Object.values(regionsById).forEach((region) => {
+        if (!region) return;
+
+        const country = region?.country ? countriesById.get(region.country) : null;
+        const party = country?.rulingParty ? partiesById.get(country.rulingParty) : null;
+
+        // Calculate country bonus for this specialization
+        const countryBonus = getCountryProductionBonusPct(country, material.id, party);
+
+        // Calculate deposit bonus for this specialization
+        const depositBonus = getRegionDepositProductionBonusPct(region, material.id, now, party);
+
+        const totalBonus = countryBonus + depositBonus;
+
+        if (totalBonus > maxBonus) {
+          maxBonus = totalBonus;
+        }
+      });
+
+      if (maxBonus > 0) {
+        maxBonusByMaterial[material.id] = maxBonus;
+      }
+    });
+
+    return maxBonusByMaterial;
+  } catch (error) {
+    throw new Error(`Failed to fetch production bonuses: ${error.message}`);
+  }
 }
 
 export async function importWareraUserData(searchText, fetchImpl = globalThis.fetch) {

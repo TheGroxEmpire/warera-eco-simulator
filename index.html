@@ -93,9 +93,13 @@
     </section>
 
     <section class="panel">
-      <h2>4. Factory Settings</h2>
+      <h2>4. Company Settings</h2>
       <h3>Production Bonuses</h3>
-      <p class="hint">Set production bonuses for each material (from country/region bonuses). Used by factory optimizer.</p>
+      <div class="grid control-grid">
+        <button id="sync-bonuses-btn" type="button" class="secondary-btn">Fetch Bonuses from WarEra</button>
+      </div>
+      <p id="bonus-sync-status" class="hint"></p>
+      <p class="hint">Set production bonuses for each material (from country/region bonuses). Used by company optimizer.</p>
       <div id="bonus-grid" class="price-grid"></div>
       <h3>Company Setup</h3>
       <p class="hint">Each company has its own specialization, AE level, workers, worker energy/production, worker wage, and worker fidelity.</p>
@@ -127,7 +131,7 @@
 
     <section class="panel">
       <h2>7. Optimization</h2>
-      <p class="hint">Choose what optimizer should change: skill allocation, entrepreneurship plan, or both.</p>
+      <p class="hint">Choose what optimizer should change: skill allocation, entrepreneurship plan, etc, or all of them.</p>
       <div class="grid control-grid">
         <label>
           Optimize For
@@ -145,8 +149,8 @@
             <span>Optimize Skill Allocation</span>
           </label>
           <label class="checkbox-line">
-            <input id="optimize-factory-toggle" type="checkbox">
-            <span>Optimize Factory Specializations</span>
+            <input id="optimize-company-toggle" type="checkbox">
+            <span>Optimize Company Specializations</span>
           </label>
           <label class="checkbox-line">
             <input id="optimize-entre-plan-toggle" type="checkbox">

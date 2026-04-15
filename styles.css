@@ -99,6 +99,11 @@ body {
   font-size: 1.05rem;
 }
 
+.panel h3 {
+  margin: 0.75rem 0 0.5rem;
+  font-size: 0.95rem;
+}
+
 .grid {
   display: grid;
   gap: 0.65rem;

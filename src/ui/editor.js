@@ -24,15 +24,18 @@ export function createEditorUI({
   function buildMaterialBonusInputs() {
     const bonusGrid = document.getElementById("bonus-grid");
     if (!bonusGrid) return;
-    bonusGrid.innerHTML = MATERIALS.map((material) => `
+    bonusGrid.innerHTML = MATERIALS.map((material) => {
+      const currentValue = document.getElementById(`material-bonus-${material.id}`)?.value || "0";
+      return `
       <label class="price-row">
         <img class="item-icon" src="${getItemImagePath(material.id)}" alt="${material.name} icon" loading="lazy">
         <span>${material.name} Bonus %</span>
         <div class="price-input-wrap">
-          <input id="material-bonus-${material.id}" type="number" min="0" step="0.1" value="0">
+          <input id="material-bonus-${material.id}" type="number" min="0" step="0.1" value="${currentValue}">
         </div>
       </label>
-    `).join("");
+    `;
+    }).join("");
   }
 
   function syncEntrePlanSlotsForCurrentContext(config, alloc) {

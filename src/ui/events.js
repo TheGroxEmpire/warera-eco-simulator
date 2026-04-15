@@ -14,6 +14,7 @@ export function bindEvents({
   rerenderFromCurrentState,
   optimizeAllocation,
   syncPricesFromApi,
+  syncProductionBonusesFromApi,
   importUserFromApi,
   copyCurrentScenarioToOtherSlot,
   switchCompareScenario,
@@ -31,9 +32,10 @@ export function bindEvents({
     "company-utilization",
     "own-wage",
     "optimize-skill-toggle",
-    "optimize-factory-toggle",
+    "optimize-company-toggle",
     "optimize-entre-plan-toggle",
     ...MATERIALS.map((material) => `price-${material.id}`),
+    ...MATERIALS.map((material) => `material-bonus-${material.id}`),
   ];
 
   for (const id of inputIds) {
@@ -232,6 +234,9 @@ export function bindEvents({
   document.getElementById("optimize-btn").addEventListener("click", optimizeAllocation);
   document.getElementById("sync-prices-btn").addEventListener("click", () => {
     syncPricesFromApi();
+  });
+  document.getElementById("sync-bonuses-btn")?.addEventListener("click", () => {
+    syncProductionBonusesFromApi();
   });
   document.getElementById("user-import-form")?.addEventListener("submit", (event) => {
     event.preventDefault();

@@ -107,7 +107,7 @@ export function heuristicOptimizeEntrePlanForAlloc(alloc, config) {
   };
 }
 
-export function optimizeFactorySpecializations(alloc, config, companies) {
+export function optimizeCompanySpecializations(alloc, config, companies) {
   if (!Array.isArray(companies) || companies.length === 0) {
     return {
       bestSpecializations: {},
@@ -175,7 +175,7 @@ export function optimizeFactorySpecializations(alloc, config, companies) {
   };
 }
 
-export function heuristicOptimizeFactorySpecializations(alloc, config, companies) {
+export function heuristicOptimizeCompanySpecializations(alloc, config, companies) {
   if (!Array.isArray(companies) || companies.length === 0) {
     return {
       bestSpecializations: {},
@@ -200,7 +200,7 @@ export function heuristicOptimizeFactorySpecializations(alloc, config, companies
     return {
       ...company,
       specialization: bestSpecializations[company.id],
-      productionBonusPct: company.productionBonusPct + materialBonus,
+      productionBonusPct: materialBonus,
     };
   });
   let modifiedConfig = {
@@ -234,7 +234,7 @@ export function heuristicOptimizeFactorySpecializations(alloc, config, companies
           return {
             ...c,
             specialization: bestSpecializations[c.id],
-            productionBonusPct: c.productionBonusPct + materialBonus,
+            productionBonusPct: materialBonus,
           };
         });
         modifiedConfig = {
@@ -275,12 +275,12 @@ export function optimizeAllocationAndPlan({
   currentAlloc,
   optimizeSkill,
   optimizeEntrePlan,
-  optimizeFactory,
+  optimizeCompany,
   companies,
 }) {
-  if (!optimizeSkill && !optimizeEntrePlan && !optimizeFactory) {
+  if (!optimizeSkill && !optimizeEntrePlan && !optimizeCompany) {
     return {
-      error: "Select at least one optimizer target: Skill Allocation, Factory Specialization, or Entrepreneurship Plan.",
+      error: "Select at least one optimizer target: Skill Allocation, Company Specialization, or Entrepreneurship Plan.",
     };
   }
 
@@ -371,24 +371,24 @@ export function optimizeAllocationAndPlan({
     evaluateCandidate(currentAlloc, optimizeEntrePlan ? "exact" : null);
   }
 
-  // Optimize factory specializations if requested
-  let bestFactorySpecializations = null;
-  let bestFactoryResult = bestResult;
-  let bestFactoryScore = bestScore;
-  let bestFactoryConfig = null;
-  let checkedFactorySpecs = 0;
+  // Optimize company specializations if requested
+  let bestCompanySpecializations = null;
+  let bestCompanyResult = bestResult;
+  let bestCompanyScore = bestScore;
+  let bestCompanyConfig = null;
+  let checkedCompanySpecs = 0;
 
-  if (optimizeFactory && Array.isArray(companies) && companies.length > 0) {
-    // Use heuristic factory optimization for speed (exact would be exponential)
+  if (optimizeCompany && Array.isArray(companies) && companies.length > 0) {
+    // Use heuristic company optimization for speed (exact would be exponential)
     // We need to pass a config that includes the current companies
-    const configForFactory = { ...config, companyConfigs: companies };
-    const factoryOpt = heuristicOptimizeFactorySpecializations(bestAlloc || currentAlloc, configForFactory, companies);
-    checkedFactorySpecs = factoryOpt.checked;
-    if (factoryOpt.bestScore > bestFactoryScore) {
-      bestFactoryScore = factoryOpt.bestScore;
-      bestFactoryResult = factoryOpt.bestResult;
-      bestFactorySpecializations = factoryOpt.bestSpecializations;
-      bestFactoryConfig = configForFactory;
+    const configForCompany = { ...config, companyConfigs: companies };
+    const companyOpt = heuristicOptimizeCompanySpecializations(bestAlloc || currentAlloc, configForCompany, companies);
+    checkedCompanySpecs = companyOpt.checked;
+    if (companyOpt.bestScore > bestCompanyScore) {
+      bestCompanyScore = companyOpt.bestScore;
+      bestCompanyResult = companyOpt.bestResult;
+      bestCompanySpecializations = companyOpt.bestSpecializations;
+      bestCompanyConfig = configForCompany;
     }
   }
 
@@ -406,12 +406,12 @@ export function optimizeAllocationAndPlan({
     error: null,
     checkedSkillAllocs,
     checkedEntrePlanStates,
-    checkedFactorySpecs,
+    checkedCompanySpecs,
     bestAlloc,
     bestPlanByCompanyId,
-    bestFactorySpecializations,
-    bestResult: bestFactoryResult || bestResult,
-    bestScore: bestFactoryScore,
+    bestCompanySpecializations,
+    bestResult: bestCompanyResult || bestResult,
+    bestScore: bestCompanyScore,
     modeLabel,
     planMethod,
     fixedCost,
