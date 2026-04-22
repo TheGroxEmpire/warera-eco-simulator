@@ -192,6 +192,14 @@ body {
   gap: 0.35rem;
 }
 
+.bonus-sync-options {
+  align-self: end;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.65rem 0.7rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
 .checkbox-line {
   display: flex;
   align-items: center;

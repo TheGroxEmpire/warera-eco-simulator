@@ -97,9 +97,15 @@
       <h3>Production Bonuses</h3>
       <div class="grid control-grid">
         <button id="sync-bonuses-btn" type="button" class="secondary-btn">Fetch Bonuses from WarEra</button>
+        <div class="bonus-sync-options">
+          <label class="checkbox-line">
+            <input id="ignore-deposit-bonuses-toggle" type="checkbox">
+            <span>Ignore Active Deposits</span>
+          </label>
+        </div>
       </div>
       <p id="bonus-sync-status" class="hint"></p>
-      <p class="hint">Set production bonuses for each material (from country/region bonuses). Used by company optimizer.</p>
+      <p class="hint">Set production bonuses for each material. Fetch can include active regional deposits or use only country/ruling party bonuses.</p>
       <div id="bonus-grid" class="price-grid"></div>
       <h3>Company Setup</h3>
       <p class="hint">Each company has its own specialization, AE level, workers, worker energy/production, worker wage, and worker fidelity.</p>

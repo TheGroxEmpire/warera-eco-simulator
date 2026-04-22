@@ -9,6 +9,7 @@ const DEFAULT_WORKER_ENERGY_PER_10H = 100;
 const DEFAULT_WORKER_PRODUCTION_PER_ACTION = 31;
 const DEFAULT_COMPANY_WAGE = 0.135;
 const WARERA_API_TIMEOUT_MS = 15000;
+const PARTY_BATCH_SIZE = 100;
 const AMMO_OR_CONSTRUCTION_SPECIALIZATION_IDS = new Set([
   "limestone",
   "iron",
@@ -56,7 +57,7 @@ function getPartySpecializationBonusPct(partyLite, specialization) {
     return 0;
   }
 
-  if (industrialism >= 2) {
+  if (industrialism >= 2 && AMMO_OR_CONSTRUCTION_SPECIALIZATION_IDS.has(specialization)) {
     return 30;
   }
 
@@ -117,6 +118,26 @@ function normalizeApiErrorMessage(payload, fallback) {
   }
 
   return rawMessage;
+}
+
+function normalizeProductionBonusOptions(options = {}) {
+  return {
+    ignoreDepositBonuses: options?.ignoreDepositBonuses === true || options?.ignoreDeposits === true,
+  };
+}
+
+function normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions) {
+  if (typeof fetchImplOrOptions === "function") {
+    return {
+      fetchImpl: fetchImplOrOptions,
+      productionBonusOptions: normalizeProductionBonusOptions(maybeOptions),
+    };
+  }
+
+  return {
+    fetchImpl: globalThis.fetch,
+    productionBonusOptions: normalizeProductionBonusOptions(fetchImplOrOptions),
+  };
 }
 
 export class WareraApiError extends Error {
@@ -208,6 +229,147 @@ export async function callWareraApi(method, input, fetchImpl = globalThis.fetch)
   return payload.result.data;
 }
 
+function chunkArray(values, size) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return [];
+  }
+
+  const normalizedSize = Math.max(1, Math.floor(Number(size) || 1));
+  const chunks = [];
+  for (let index = 0; index < values.length; index += normalizedSize) {
+    chunks.push(values.slice(index, index + normalizedSize));
+  }
+  return chunks;
+}
+
+export async function callWareraApiBatch(method, inputs, fetchImpl = globalThis.fetch) {
+  if (typeof fetchImpl !== "function") {
+    throw new Error("Fetch API is not available in this environment.");
+  }
+
+  const normalizedInputs = Array.isArray(inputs) ? inputs : [];
+  if (normalizedInputs.length === 0) {
+    return [];
+  }
+
+  const url = new URL(`${getWareraApiBaseUrl()}/${normalizedInputs.map(() => method).join(",")}`);
+  url.searchParams.set("batch", "1");
+  url.searchParams.set(
+    "input",
+    JSON.stringify(
+      Object.fromEntries(normalizedInputs.map((input, index) => [String(index), input])),
+    ),
+  );
+
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => {
+      controller.abort();
+    }, WARERA_API_TIMEOUT_MS)
+    : null;
+
+  let response;
+  try {
+    response = await fetchImpl(url.toString(), {
+      headers: {
+        accept: "application/json",
+      },
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+  } catch (err) {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
+    if (err?.name === "AbortError") {
+      throw new Error(`WarEra API request timed out after ${Math.floor(WARERA_API_TIMEOUT_MS / 1000)}s for ${method} batch.`);
+    }
+
+    if (err instanceof TypeError) {
+      throw new Error("Could not reach the WarEra API from the browser. Check your connection or allow api2.warera.io in privacy/ad-block extensions. A blocked Cloudflare beacon script is unrelated.");
+    }
+
+    throw err;
+  }
+
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+  }
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok || !Array.isArray(payload)) {
+    throw new WareraApiError(
+      normalizeApiErrorMessage(payload, `WarEra API batch request failed for ${method}${response?.status ? ` (HTTP ${response.status})` : ""}.`),
+      { status: response?.status || null, method },
+    );
+  }
+
+  return payload.map((entry, index) => {
+    if (entry?.error) {
+      throw new WareraApiError(
+        normalizeApiErrorMessage(entry, `WarEra API batch entry failed for ${method} at index ${index}.`),
+        { status: entry?.error?.data?.httpStatus || response?.status || null, method },
+      );
+    }
+
+    if (entry?.result?.data === undefined) {
+      throw new Error(`Unexpected WarEra API batch response for ${method}.`);
+    }
+
+    return entry.result.data;
+  });
+}
+
+async function fetchPartiesByIds(partyIds, fetchImpl) {
+  const normalizedPartyIds = [...new Set((Array.isArray(partyIds) ? partyIds : []).filter(Boolean))];
+  if (normalizedPartyIds.length === 0) {
+    return {
+      partiesById: new Map(),
+      failedCount: 0,
+    };
+  }
+
+  const chunks = chunkArray(normalizedPartyIds, PARTY_BATCH_SIZE);
+  const chunkResults = await Promise.allSettled(
+    chunks.map((chunk) => callWareraApiBatch(
+      "party.getById",
+      chunk.map((partyId) => ({ partyId })),
+      fetchImpl,
+    )),
+  );
+
+  const partiesById = new Map();
+  let failedCount = 0;
+
+  chunkResults.forEach((result, chunkIndex) => {
+    const chunk = chunks[chunkIndex];
+    if (result.status !== "fulfilled") {
+      failedCount += chunk.length;
+      return;
+    }
+
+    result.value.forEach((partyLite, partyIndex) => {
+      const partyId = chunk[partyIndex];
+      if (partyId && partyLite) {
+        partiesById.set(partyId, partyLite);
+      } else {
+        failedCount += 1;
+      }
+    });
+  });
+
+  return {
+    partiesById,
+    failedCount,
+  };
+}
+
 export function resolveMaterialIdFromItemCode(itemCode) {
   const raw = String(itemCode || "").trim();
   if (!raw) {
@@ -277,7 +439,18 @@ export function getCountryProductionBonusPct(countryLite, specialization, partyL
   ).toFixed(6));
 }
 
-export function getRegionDepositProductionBonusPct(regionLite, specialization, now = new Date(), partyLite = null) {
+export function getRegionDepositProductionBonusPct(
+  regionLite,
+  specialization,
+  now = new Date(),
+  partyLite = null,
+  options = {},
+) {
+  const { ignoreDepositBonuses } = normalizeProductionBonusOptions(options);
+  if (ignoreDepositBonuses) {
+    return 0;
+  }
+
   const deposit = regionLite?.deposit;
   if (!deposit) {
     return 0;
@@ -311,6 +484,7 @@ export function getImportedCompanyProductionBonusPct(
   countriesById = new Map(),
   partiesById = new Map(),
   now = new Date(),
+  options = {},
 ) {
   const specialization = resolveMaterialIdFromItemCode(companyLite?.itemCode);
   if (!specialization) {
@@ -323,7 +497,7 @@ export function getImportedCompanyProductionBonusPct(
 
   return Number((
     getCountryProductionBonusPct(country, specialization, party)
-    + getRegionDepositProductionBonusPct(region, specialization, now, party)
+    + getRegionDepositProductionBonusPct(region, specialization, now, party, options)
   ).toFixed(6));
 }
 
@@ -367,6 +541,7 @@ export function buildImportedCompanyConfig(
       referenceData.countriesById,
       referenceData.partiesById,
       referenceData.now,
+      referenceData.productionBonusOptions,
     ),
     manualActionsPer10h: 0,
     workers: workerConfigs,
@@ -425,22 +600,7 @@ async function fetchRelevantRulingParties(companyResults, referenceData, fetchIm
     };
   }
 
-  const partyResults = await Promise.allSettled(
-    partyIds.map((partyId) => callWareraApi("party.getById", { partyId }, fetchImpl)),
-  );
-
-  const partiesById = new Map();
-  let failedCount = 0;
-
-  for (let index = 0; index < partyResults.length; index += 1) {
-    const result = partyResults[index];
-    const partyId = partyIds[index];
-    if (result.status === "fulfilled") {
-      partiesById.set(partyId, result.value);
-    } else {
-      failedCount += 1;
-    }
-  }
+  const { partiesById, failedCount } = await fetchPartiesByIds(partyIds, fetchImpl);
 
   return {
     partiesById,
@@ -561,9 +721,10 @@ async function fetchWorkerProfiles(workers, fetchImpl) {
   };
 }
 
-async function fetchImportedCompanies(userLite, fetchImpl) {
+async function fetchImportedCompanies(userLite, fetchImpl, options = {}) {
   const companyIds = await fetchAllCompanyIds(userLite._id, fetchImpl);
   const referenceData = await fetchImportReferenceData(fetchImpl);
+  referenceData.productionBonusOptions = normalizeProductionBonusOptions(options);
   const warnings = [...referenceData.warnings];
   const companyConfigs = [];
   let workersImported = 0;
@@ -621,11 +782,15 @@ async function fetchImportedCompanies(userLite, fetchImpl) {
   };
 }
 
-export async function fetchMaxMaterialProductionBonuses(fetchImpl = globalThis.fetch) {
+export async function fetchMaxMaterialProductionBonuses(fetchImplOrOptions = globalThis.fetch, maybeOptions = {}) {
+  const { fetchImpl, productionBonusOptions } = normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions);
+
   try {
     const [countries, regionsData] = await Promise.all([
       callWareraApi("country.getAllCountries", undefined, fetchImpl),
-      callWareraApi("region.getRegionsObject", undefined, fetchImpl),
+      productionBonusOptions.ignoreDepositBonuses
+        ? Promise.resolve({})
+        : callWareraApi("region.getRegionsObject", undefined, fetchImpl),
     ]);
 
     const countriesById = new Map(
@@ -646,44 +811,45 @@ export async function fetchMaxMaterialProductionBonuses(fetchImpl = globalThis.f
     // Fetch all relevant parties
     let partiesById = new Map();
     if (partyIds.length > 0) {
-      const partyResults = await Promise.allSettled(
-        partyIds.map((partyId) => callWareraApi("party.getById", { partyId }, fetchImpl)),
-      );
-
-      for (let index = 0; index < partyResults.length; index += 1) {
-        const result = partyResults[index];
-        const partyId = partyIds[index];
-        if (result.status === "fulfilled") {
-          partiesById.set(partyId, result.value);
-        }
-      }
+      ({ partiesById } = await fetchPartiesByIds(partyIds, fetchImpl));
     }
 
     const maxBonusByMaterial = {};
     const now = new Date();
 
-    // For each material, find the maximum bonus available across all regions
+    // For each material, find the maximum bonus available from current WarEra bonus sources.
     MATERIALS.forEach((material) => {
       let maxBonus = 0;
 
-      Object.values(regionsById).forEach((region) => {
-        if (!region) return;
+      if (productionBonusOptions.ignoreDepositBonuses) {
+        countriesById.forEach((country) => {
+          const party = country?.rulingParty ? partiesById.get(country.rulingParty) : null;
+          const totalBonus = getCountryProductionBonusPct(country, material.id, party);
 
-        const country = region?.country ? countriesById.get(region.country) : null;
-        const party = country?.rulingParty ? partiesById.get(country.rulingParty) : null;
+          if (totalBonus > maxBonus) {
+            maxBonus = totalBonus;
+          }
+        });
+      } else {
+        Object.values(regionsById).forEach((region) => {
+          if (!region) return;
 
-        // Calculate country bonus for this specialization
-        const countryBonus = getCountryProductionBonusPct(country, material.id, party);
+          const country = region?.country ? countriesById.get(region.country) : null;
+          const party = country?.rulingParty ? partiesById.get(country.rulingParty) : null;
 
-        // Calculate deposit bonus for this specialization
-        const depositBonus = getRegionDepositProductionBonusPct(region, material.id, now, party);
+          // Calculate country bonus for this specialization
+          const countryBonus = getCountryProductionBonusPct(country, material.id, party);
 
-        const totalBonus = countryBonus + depositBonus;
+          // Calculate deposit bonus for this specialization
+          const depositBonus = getRegionDepositProductionBonusPct(region, material.id, now, party, productionBonusOptions);
 
-        if (totalBonus > maxBonus) {
-          maxBonus = totalBonus;
-        }
-      });
+          const totalBonus = countryBonus + depositBonus;
+
+          if (totalBonus > maxBonus) {
+            maxBonus = totalBonus;
+          }
+        });
+      }
 
       if (maxBonus > 0) {
         maxBonusByMaterial[material.id] = maxBonus;
@@ -700,9 +866,10 @@ export async function fetchMaxMaterialProductionBonuses(fetchImpl = globalThis.f
   }
 }
 
-export async function importWareraUserData(searchText, fetchImpl = globalThis.fetch) {
+export async function importWareraUserData(searchText, fetchImplOrOptions = globalThis.fetch, maybeOptions = {}) {
+  const { fetchImpl, productionBonusOptions } = normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions);
   const { userLite, matchedBy, exactUsernameMatch, searchCandidateCount } = await resolveUserFromSearch(searchText, fetchImpl);
-  const importedCompanies = await fetchImportedCompanies(userLite, fetchImpl);
+  const importedCompanies = await fetchImportedCompanies(userLite, fetchImpl, productionBonusOptions);
 
   return {
     level: Math.max(1, Math.floor(Number(userLite?.leveling?.level) || 1)),

@@ -93,6 +93,11 @@ test("country and region bonus helpers derive company production bonus from spec
   );
   assert.equal(getRegionDepositProductionBonusPct(region, "fish", "2026-03-30T00:00:00.000Z"), 0);
   assert.equal(getRegionDepositProductionBonusPct(region, "cooked_fish", "2026-05-01T00:00:00.000Z"), 0);
+  assert.equal(getRegionDepositProductionBonusPct(region, "cooked_fish", "2026-03-30T00:00:00.000Z", null, { ignoreDepositBonuses: true }), 0);
+  assert.equal(
+    getImportedCompanyProductionBonusPct(company, { "region-1": region }, new Map([["country-1", country]]), new Map(), "2026-03-30T00:00:00.000Z", { ignoreDepositBonuses: true }),
+    12.5,
+  );
   assert.equal(getCountryProductionBonusPct(country, "cooked_fish", industrialParty), 42.5);
   assert.equal(getRegionDepositProductionBonusPct(region, "cooked_fish", "2026-03-30T00:00:00.000Z", industrialParty), 0);
   assert.equal(getCountryProductionBonusPct(country, "cooked_fish", agrarianParty), 0);
@@ -300,6 +305,26 @@ test("importWareraUserData converts live-style WarEra payloads into simulator st
     const parsed = new URL(url);
     const method = parsed.pathname.split("/").pop();
     const input = parsed.searchParams.get("input");
+    const batch = parsed.searchParams.get("batch");
+
+    if (batch === "1" && method?.includes(",") && input) {
+      const methods = method.split(",");
+      const batchedInput = JSON.parse(input);
+      const batchedPayload = methods.map((subMethod, index) => {
+        const subInput = batchedInput?.[String(index)];
+        const subKey = `${subMethod}?${JSON.stringify(subInput || {})}`;
+        const subResponse = responses.get(subKey);
+
+        if (!subResponse) {
+          throw new Error(`Unexpected batched request entry: ${subKey}`);
+        }
+
+        return subResponse.clone().json();
+      });
+
+      return jsonResponse(await Promise.all(batchedPayload));
+    }
+
     const key = `${method}?${input || ""}`;
     const response = responses.get(key);
 
@@ -377,6 +402,60 @@ test("callWareraApi preserves HTTP 429 status for rate limits", async () => {
       return true;
     },
   );
+});
+
+test("fetchMaxMaterialProductionBonuses can ignore active deposit bonuses", async () => {
+  let regionRequests = 0;
+  const fetchStub = async (url) => {
+    const method = new URL(url).pathname.split("/").pop();
+
+    if (method === "country.getAllCountries") {
+      return jsonResponse({
+        result: {
+          data: [
+            {
+              _id: "country-1",
+              specializedItem: "fish",
+              strategicResources: {
+                bonuses: {
+                  productionPercent: 8,
+                },
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    if (method === "region.getRegionsObject") {
+      regionRequests += 1;
+      return jsonResponse({
+        result: {
+          data: {
+            "region-1": {
+              _id: "region-1",
+              country: "country-1",
+              deposit: {
+                type: "fish",
+                bonusPercent: 30,
+                startsAt: "2000-01-01T00:00:00.000Z",
+                endsAt: "2100-01-01T00:00:00.000Z",
+              },
+            },
+          },
+        },
+      });
+    }
+
+    throw new Error(`Unexpected request: ${method}`);
+  };
+
+  const withDeposits = await fetchMaxMaterialProductionBonuses(fetchStub);
+  const withoutDeposits = await fetchMaxMaterialProductionBonuses(fetchStub, { ignoreDepositBonuses: true });
+
+  assert.equal(withDeposits.fish, 38);
+  assert.equal(withoutDeposits.fish, 8);
+  assert.equal(regionRequests, 1);
 });
 
 test("fetchMaxMaterialProductionBonuses preserves rate limit status", async () => {

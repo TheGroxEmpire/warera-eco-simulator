@@ -109,6 +109,10 @@ function getMaterialProductionBonuses() {
   return bonuses;
 }
 
+function shouldIgnoreDepositBonuses() {
+  return document.getElementById("ignore-deposit-bonuses-toggle")?.checked === true;
+}
+
 function normalizeSyncTimestamp(value) {
   if (!value) {
     return null;
@@ -297,6 +301,7 @@ function normalizeSnapshot(raw) {
       optimizeSkill: config.optimizeSkill !== false,
       optimizeCompany: config.optimizeCompany === true,
       optimizeEntrePlan: config.optimizeEntrePlan === true,
+      ignoreDepositBonuses: config.ignoreDepositBonuses === true,
       entrePlanSlots: sanitizeEntrePlanSlots(config.entrePlanSlots),
       objective,
     },
@@ -327,6 +332,7 @@ function captureSnapshotFromInputs() {
       optimizeSkill: document.getElementById("optimize-skill-toggle")?.checked !== false,
       optimizeCompany: document.getElementById("optimize-company-toggle")?.checked === true,
       optimizeEntrePlan: document.getElementById("optimize-entre-plan-toggle")?.checked === true,
+      ignoreDepositBonuses: shouldIgnoreDepositBonuses(),
       entrePlanSlots: getEntrePlanSlotsState(),
       objective: document.getElementById("objective").value,
     },
@@ -399,9 +405,11 @@ function applySnapshotToInputs(snapshot, shouldRerender = true) {
   const optimizeSkillToggle = document.getElementById("optimize-skill-toggle");
   const optimizeCompanyToggle = document.getElementById("optimize-company-toggle");
   const optimizeEntrePlanToggle = document.getElementById("optimize-entre-plan-toggle");
+  const ignoreDepositBonusesToggle = document.getElementById("ignore-deposit-bonuses-toggle");
   if (optimizeSkillToggle) optimizeSkillToggle.checked = normalized.config.optimizeSkill !== false;
   if (optimizeCompanyToggle) optimizeCompanyToggle.checked = normalized.config.optimizeCompany === true;
   if (optimizeEntrePlanToggle) optimizeEntrePlanToggle.checked = normalized.config.optimizeEntrePlan === true;
+  if (ignoreDepositBonusesToggle) ignoreDepositBonusesToggle.checked = normalized.config.ignoreDepositBonuses === true;
   setEntrePlanSlotsState(normalized.config.entrePlanSlots);
   setAllocationsToInputs(normalized.alloc);
   for (const material of MATERIALS) {
@@ -410,7 +418,6 @@ function applySnapshotToInputs(snapshot, shouldRerender = true) {
   }
   setCompanyConfigs(normalized.companyConfigs, {}, { allowEmpty: normalized.hasCompanyConfigs === true });
   applyImportedScenarioMeta(normalized.importMeta);
-  buildMaterialBonusInputs();
   if (shouldRerender) {
     renderCompanyEditor();
     rerenderFromCurrentState();
@@ -824,8 +831,12 @@ async function importUserFromApi() {
   setUserImportStatus("Looking up WarEra user data and building simulator state...");
 
   try {
-    const imported = await importWareraUserData(searchInput.value);
-    const successMessagePrefix = `Imported ${imported.user.username}. Skills, level, companies, worker stats, company production bonuses from country, region, and ruling party data, company wages, and maximum material production bonuses were refreshed. Your own wage stays manual.`;
+    const ignoreDepositBonuses = shouldIgnoreDepositBonuses();
+    const productionBonusSourceLabel = ignoreDepositBonuses
+      ? "country and ruling party data"
+      : "country, active deposit, and ruling party data";
+    const imported = await importWareraUserData(searchInput.value, globalThis.fetch, { ignoreDepositBonuses });
+    const successMessagePrefix = `Imported ${imported.user.username}. Skills, level, companies, worker stats, company production bonuses from ${productionBonusSourceLabel}, company wages, and maximum material production bonuses were refreshed. Your own wage stays manual.`;
 
     document.getElementById("level").value = String(imported.level);
     setAllocationsToInputs(imported.alloc);
@@ -883,6 +894,7 @@ function saveState() {
       optimizeSkill: document.getElementById("optimize-skill-toggle")?.checked !== false,
       optimizeCompany: document.getElementById("optimize-company-toggle")?.checked === true,
       optimizeEntrePlan: document.getElementById("optimize-entre-plan-toggle")?.checked === true,
+      ignoreDepositBonuses: shouldIgnoreDepositBonuses(),
       entrePlanSlots: getEntrePlanSlotsState(),
       objective: document.getElementById("objective").value,
     },
@@ -948,9 +960,11 @@ function loadState() {
     const optimizeSkillToggle = document.getElementById("optimize-skill-toggle");
     const optimizeCompanyToggle = document.getElementById("optimize-company-toggle");
     const optimizeEntrePlanToggle = document.getElementById("optimize-entre-plan-toggle");
+    const ignoreDepositBonusesToggle = document.getElementById("ignore-deposit-bonuses-toggle");
     if (optimizeSkillToggle) optimizeSkillToggle.checked = c.optimizeSkill !== false;
     if (optimizeCompanyToggle) optimizeCompanyToggle.checked = c.optimizeCompany === true;
     if (optimizeEntrePlanToggle) optimizeEntrePlanToggle.checked = c.optimizeEntrePlan === true;
+    if (ignoreDepositBonusesToggle) ignoreDepositBonusesToggle.checked = c.ignoreDepositBonuses === true;
     if (!OBJECTIVES[document.getElementById("objective").value]) {
       document.getElementById("objective").value = DEFAULT_OBJECTIVE_KEY;
     }
@@ -1148,21 +1162,26 @@ async function syncProductionBonusesFromApi() {
   const statusEl = document.getElementById("bonus-sync-status");
 
   try {
-    setStatusMessage(statusEl, "Fetching production bonuses from WarEra API...", "info");
+    const ignoreDepositBonuses = shouldIgnoreDepositBonuses();
+    const depositLabel = ignoreDepositBonuses ? " without active deposit bonuses" : "";
+    setStatusMessage(statusEl, `Fetching production bonuses from WarEra API${depositLabel}...`, "info");
 
-    const maxBonuses = await fetchMaxMaterialProductionBonuses();
+    const maxBonuses = await fetchMaxMaterialProductionBonuses(globalThis.fetch, { ignoreDepositBonuses });
 
     MATERIALS.forEach((material) => {
       const inputEl = document.getElementById(`material-bonus-${material.id}`);
-      if (inputEl && maxBonuses[material.id]) {
-        inputEl.value = maxBonuses[material.id];
+      if (inputEl) {
+        inputEl.value = maxBonuses[material.id] || 0;
       }
     });
 
     bonusDataSyncedAt = new Date().toISOString();
     bonusDataSyncedThisSession = true;
 
-    setStatusMessage(statusEl, "Production bonuses updated from WarEra API.", "success");
+    const successMessage = ignoreDepositBonuses
+      ? "Production bonuses updated from WarEra API with active deposits ignored."
+      : "Production bonuses updated from WarEra API.";
+    setStatusMessage(statusEl, successMessage, "success");
 
     rerenderFromCurrentState();
   } catch (err) {

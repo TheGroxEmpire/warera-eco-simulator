@@ -34,24 +34,21 @@ export function bindEvents({
     "optimize-skill-toggle",
     "optimize-company-toggle",
     "optimize-entre-plan-toggle",
+    "ignore-deposit-bonuses-toggle",
     ...MATERIALS.map((material) => `price-${material.id}`),
     ...MATERIALS.map((material) => `material-bonus-${material.id}`),
   ];
+  const rerenderInputIds = new Set(inputIds);
 
-  for (const id of inputIds) {
-    const el = document.getElementById(id);
-    if (!el) {
-      continue;
+  const rerenderForTrackedInput = (event) => {
+    const targetId = typeof event?.target?.id === "string" ? event.target.id : "";
+    if (!rerenderInputIds.has(targetId)) {
+      return;
     }
-
-    el.addEventListener("input", () => {
-      rerenderFromCurrentState();
-    });
-
-    el.addEventListener("change", () => {
-      rerenderFromCurrentState();
-    });
-  }
+    rerenderFromCurrentState();
+  };
+  document.addEventListener("input", rerenderForTrackedInput);
+  document.addEventListener("change", rerenderForTrackedInput);
 
   const companiesEditorEl = document.getElementById("companies-editor");
   companiesEditorEl.addEventListener("click", (event) => {
