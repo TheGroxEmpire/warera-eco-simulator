@@ -8,6 +8,7 @@ import {
   OBJECTIVES,
   PRICE_API_URL,
   STORAGE_KEY,
+  WARERA_API_TOKEN_STORAGE_KEY,
 } from "./config/constants.js?v=20260330-09";
 import {
   buildEntrePlanSlotsFromPlan,
@@ -111,6 +112,100 @@ function getMaterialProductionBonuses() {
 
 function shouldIgnoreDepositBonuses() {
   return document.getElementById("ignore-deposit-bonuses-toggle")?.checked === true;
+}
+
+function normalizeWareraApiToken(value) {
+  return String(value || "").trim();
+}
+
+function getStoredWareraApiToken() {
+  try {
+    return normalizeWareraApiToken(localStorage.getItem(WARERA_API_TOKEN_STORAGE_KEY));
+  } catch {
+    return "";
+  }
+}
+
+function setApiTokenStatus(message, tone = "info") {
+  const statusEl = document.getElementById("warera-api-token-status");
+  if (!statusEl) {
+    return;
+  }
+
+  statusEl.textContent = message;
+  statusEl.classList.remove("status-error", "status-success", "status-info", "status-warning");
+  statusEl.classList.add(`status-${tone}`);
+}
+
+function saveWareraApiToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(WARERA_API_TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(WARERA_API_TOKEN_STORAGE_KEY);
+    }
+    return true;
+  } catch (err) {
+    setApiTokenStatus("Could not save the API token in this browser.", "error");
+    console.error("Failed to save WarEra API token:", err);
+    return false;
+  }
+}
+
+function getWareraApiTokenForImport() {
+  const inputEl = document.getElementById("warera-api-token");
+  const inputToken = normalizeWareraApiToken(inputEl?.value);
+  const storedToken = getStoredWareraApiToken();
+
+  if (inputToken && inputToken !== storedToken) {
+    if (saveWareraApiToken(inputToken)) {
+      setApiTokenStatus("API token saved. Worker lists will be requested during import.", "success");
+    }
+    return inputToken;
+  }
+
+  return inputToken || storedToken;
+}
+
+function loadWareraApiTokenSetting() {
+  const inputEl = document.getElementById("warera-api-token");
+  const token = getStoredWareraApiToken();
+  if (inputEl) {
+    inputEl.value = token;
+  }
+
+  if (token) {
+    setApiTokenStatus("API token saved in this browser. Worker lists will be requested during import.", "success");
+  } else {
+    setApiTokenStatus("No API token saved. Companies can import, but worker lists require a token.", "warning");
+  }
+}
+
+function saveWareraApiTokenFromInput() {
+  const inputEl = document.getElementById("warera-api-token");
+  const token = normalizeWareraApiToken(inputEl?.value);
+  if (!saveWareraApiToken(token)) {
+    return;
+  }
+
+  if (token) {
+    if (inputEl) inputEl.value = token;
+    setApiTokenStatus("API token saved. Import again to include worker lists.", "success");
+  } else {
+    setApiTokenStatus("API token cleared. Worker lists will not import until a token is saved.", "warning");
+  }
+}
+
+function clearWareraApiToken() {
+  if (!saveWareraApiToken("")) {
+    return;
+  }
+  const inputEl = document.getElementById("warera-api-token");
+  if (inputEl) {
+    inputEl.value = "";
+    inputEl.focus();
+  }
+  setApiTokenStatus("API token cleared. Worker lists will not import until a token is saved.", "warning");
 }
 
 function normalizeSyncTimestamp(value) {
@@ -246,6 +341,8 @@ function normalizeImportedScenarioMeta(raw) {
       companiesSkipped: Math.max(0, Math.floor(Number(summary.companiesSkipped) || 0)),
       workersImported: Math.max(0, Math.floor(Number(summary.workersImported) || 0)),
       workerProfilesMissing: Math.max(0, Math.floor(Number(summary.workerProfilesMissing) || 0)),
+      workerListsUnavailable: Math.max(0, Math.floor(Number(summary.workerListsUnavailable) || 0)),
+      defaultWorkersAdded: Math.max(0, Math.floor(Number(summary.defaultWorkersAdded) || 0)),
       matchedBy: summary.matchedBy === "userId" ? "userId" : "search",
       exactUsernameMatch: summary.exactUsernameMatch === true,
       searchCandidateCount: Math.max(0, Math.floor(Number(summary.searchCandidateCount) || 0)),
@@ -801,7 +898,10 @@ function renderUserImportSummary(imported) {
 
   const summaryTextEl = document.createElement("p");
   summaryTextEl.className = "hint";
-  summaryTextEl.textContent = `Level ${imported.level} | Companies imported: ${imported.summary.companiesImported}/${imported.summary.companiesFound} | Workers imported: ${imported.summary.workersImported}`;
+  const defaultWorkerText = imported.summary.defaultWorkersAdded > 0
+    ? ` | Default workers added: ${imported.summary.defaultWorkersAdded}`
+    : "";
+  summaryTextEl.textContent = `Level ${imported.level} | Companies imported: ${imported.summary.companiesImported}/${imported.summary.companiesFound} | Workers imported: ${imported.summary.workersImported}${defaultWorkerText}`;
 
   detailsEl.append(nameEl, idEl, summaryTextEl);
 
@@ -835,8 +935,10 @@ async function importUserFromApi() {
     const productionBonusSourceLabel = ignoreDepositBonuses
       ? "country and ruling party data"
       : "country, active deposit, and ruling party data";
-    const imported = await importWareraUserData(searchInput.value, globalThis.fetch, { ignoreDepositBonuses });
-    const successMessagePrefix = `Imported ${imported.user.username}. Skills, level, companies, worker stats, company production bonuses from ${productionBonusSourceLabel}, company wages, and maximum material production bonuses were refreshed. Your own wage stays manual.`;
+    const apiToken = getWareraApiTokenForImport();
+    const imported = await importWareraUserData(searchInput.value, globalThis.fetch, { ignoreDepositBonuses, apiToken });
+    const workerStatsLabel = imported.summary.workerListsUnavailable > 0 ? "available worker stats" : "worker stats";
+    const successMessagePrefix = `Imported ${imported.user.username}. Skills, level, companies, ${workerStatsLabel}, company production bonuses from ${productionBonusSourceLabel}, company wages, and maximum material production bonuses were refreshed. Your own wage stays manual.`;
 
     document.getElementById("level").value = String(imported.level);
     setAllocationsToInputs(imported.alloc);
@@ -852,7 +954,12 @@ async function importUserFromApi() {
     const workerFallbackNote = imported.summary.workerProfilesMissing > 0
       ? ` ${imported.summary.workerProfilesMissing} ${pluralize(imported.summary.workerProfilesMissing, "worker profile")} used default energy/production values.`
       : "";
-    const successMessage = `${successMessagePrefix}${searchNote}${skippedNote}${workerFallbackNote}`;
+    const defaultWorkersAdded = imported.summary.defaultWorkersAdded || 0;
+    const defaultWorkerVerb = defaultWorkersAdded === 1 ? "was" : "were";
+    const privateWorkerListNote = imported.summary.workerListsUnavailable > 0
+      ? ` Worker lists were private for ${imported.summary.workerListsUnavailable} ${pluralize(imported.summary.workerListsUnavailable, "company")}; ${defaultWorkersAdded > 0 ? `${defaultWorkersAdded} default ${pluralize(defaultWorkersAdded, "worker")} ${defaultWorkerVerb} added from public worker counts.` : "those companies were imported without workers."}`
+      : "";
+    const successMessage = `${successMessagePrefix}${searchNote}${skippedNote}${workerFallbackNote}${privateWorkerListNote}`;
 
     applyImportedScenarioMeta({
       ...imported,
@@ -1211,6 +1318,11 @@ function bindEvents() {
   });
 }
 
+function bindApiTokenEvents() {
+  document.getElementById("warera-api-token-save-btn")?.addEventListener("click", saveWareraApiTokenFromInput);
+  document.getElementById("warera-api-token-clear-btn")?.addEventListener("click", clearWareraApiToken);
+}
+
 function init() {
   editorUI = createEditorUI({
     getConfigFromInputs,
@@ -1232,8 +1344,10 @@ function init() {
   setCompanyConfigs([createDefaultCompanyConfig("iron"), createDefaultCompanyConfig("steel")]);
   loadState();
   loadCompareState();
+  loadWareraApiTokenSetting();
   applySnapshotToInputs(compareState.slots[compareState.active], false);
   bindEvents();
+  bindApiTokenEvents();
 
   rerenderFromCurrentState();
 

@@ -80,6 +80,15 @@ test("country and region bonus helpers derive company production bonus from spec
     itemCode: "fish",
     region: "region-2",
   };
+  const ironCountry = {
+    _id: "country-3",
+    specializedItem: "iron",
+    strategicResources: {
+      bonuses: {
+        productionPercent: 12.5,
+      },
+    },
+  };
   const company = {
     itemCode: "cookedFish",
     region: "region-1",
@@ -98,7 +107,8 @@ test("country and region bonus helpers derive company production bonus from spec
     getImportedCompanyProductionBonusPct(company, { "region-1": region }, new Map([["country-1", country]]), new Map(), "2026-03-30T00:00:00.000Z", { ignoreDepositBonuses: true }),
     12.5,
   );
-  assert.equal(getCountryProductionBonusPct(country, "cooked_fish", industrialParty), 42.5);
+  assert.equal(getCountryProductionBonusPct(country, "cooked_fish", industrialParty), 12.5);
+  assert.equal(getCountryProductionBonusPct(ironCountry, "iron", industrialParty), 42.5);
   assert.equal(getRegionDepositProductionBonusPct(region, "cooked_fish", "2026-03-30T00:00:00.000Z", industrialParty), 0);
   assert.equal(getCountryProductionBonusPct(country, "cooked_fish", agrarianParty), 0);
   assert.equal(getRegionDepositProductionBonusPct(region, "cooked_fish", "2026-03-30T00:00:00.000Z", agrarianParty), 0);
@@ -359,7 +369,7 @@ test("importWareraUserData converts live-style WarEra payloads into simulator st
   assert.deepEqual(imported.companyConfigs[0], {
     specialization: "cooked_fish",
     aeLevel: 5,
-    productionBonusPct: 42.5,
+    productionBonusPct: 12.5,
     manualActionsPer10h: 0,
     workers: [
       {
@@ -377,6 +387,216 @@ test("importWareraUserData converts live-style WarEra payloads into simulator st
     ],
     wagePerPP: 0.15,
   });
+});
+
+test("importWareraUserData keeps a company when its private worker list requires an API token", async () => {
+  const userId = "698f5c7311b28721ff537bf6";
+  const companyId = "69dee56f120676e0155a771d";
+  const responses = new Map([
+    [`user.getUserLite?{"userId":"${userId}"}`, jsonResponse({
+      result: {
+        data: {
+          _id: userId,
+          username: "GroxEmpire",
+          leveling: { level: 28 },
+          skills: {
+            energy: { level: 5, total: 80 },
+            entrepreneurship: { level: 10 },
+            production: { level: 10, total: 48 },
+            companies: { level: 10 },
+            management: { level: 10 },
+          },
+        },
+      },
+    })],
+    [`company.getCompanies?{"userId":"${userId}","perPage":100}`, jsonResponse({
+      result: {
+        data: {
+          items: [companyId],
+        },
+      },
+    })],
+    [`company.getById?{"companyId":"${companyId}"}`, jsonResponse({
+      result: {
+        data: {
+          _id: companyId,
+          user: userId,
+          name: "Xorgress 1",
+          itemCode: "iron",
+          region: "region-1",
+          workerCount: 1,
+          activeUpgradeLevels: {
+            automatedEngine: 6,
+          },
+        },
+      },
+    })],
+    [`worker.getWorkers?{"companyId":"${companyId}","userId":"${userId}"}`, jsonResponse({
+      error: {
+        message: "API token required",
+        data: {
+          code: "UNAUTHORIZED",
+          httpStatus: 401,
+        },
+      },
+    }, 401)],
+    ["country.getAllCountries?", jsonResponse({
+      result: {
+        data: [],
+      },
+    })],
+    ["region.getRegionsObject?", jsonResponse({
+      result: {
+        data: {},
+      },
+    })],
+  ]);
+
+  const fetchStub = async (url) => {
+    const parsed = new URL(url);
+    const method = parsed.pathname.split("/").pop();
+    const input = parsed.searchParams.get("input");
+    const key = `${method}?${input || ""}`;
+    const response = responses.get(key);
+
+    if (!response) {
+      throw new Error(`Unexpected request: ${key}`);
+    }
+
+    return response.clone();
+  };
+
+  const imported = await importWareraUserData(userId, fetchStub);
+
+  assert.equal(imported.summary.companiesFound, 1);
+  assert.equal(imported.summary.companiesImported, 1);
+  assert.equal(imported.summary.companiesSkipped, 0);
+  assert.equal(imported.summary.workersImported, 0);
+  assert.equal(imported.summary.workerListsUnavailable, 1);
+  assert.equal(imported.summary.defaultWorkersAdded, 1);
+  assert.match(imported.warnings.join(" "), /Set your API token in section 1, WarEra API Token/i);
+  assert.match(imported.warnings.join(" "), /Profile -> Settings/i);
+
+  assert.deepEqual(imported.companyConfigs, [
+    {
+      specialization: "iron",
+      aeLevel: 6,
+      productionBonusPct: 0,
+      manualActionsPer10h: 0,
+      workers: [
+        {
+          energyPer10h: 100,
+          productionPerAction: 31,
+          fidelityPct: 0,
+          wagePerPP: 0.135,
+        },
+      ],
+      wagePerPP: 0.135,
+    },
+  ]);
+});
+
+test("importWareraUserData sends a saved API token as X-API-Key", async () => {
+  const userId = "aaaaaaaaaaaaaaaaaaaaaaaa";
+  const companyId = "company-token";
+  const apiToken = "wae_test_token";
+  const workerRequestHeaders = [];
+  const responses = new Map([
+    [`user.getUserLite?{"userId":"${userId}"}`, jsonResponse({
+      result: {
+        data: {
+          _id: userId,
+          username: "TokenUser",
+          leveling: { level: 10 },
+          skills: {
+            energy: { level: 1 },
+            entrepreneurship: { level: 1 },
+            production: { level: 1 },
+            companies: { level: 1 },
+            management: { level: 1 },
+          },
+        },
+      },
+    })],
+    [`company.getCompanies?{"userId":"${userId}","perPage":100}`, jsonResponse({
+      result: {
+        data: {
+          items: [companyId],
+        },
+      },
+    })],
+    [`company.getById?{"companyId":"${companyId}"}`, jsonResponse({
+      result: {
+        data: {
+          _id: companyId,
+          user: userId,
+          name: "Token Co",
+          itemCode: "steel",
+          region: "region-token",
+          workerCount: 1,
+          activeUpgradeLevels: {
+            automatedEngine: 1,
+          },
+        },
+      },
+    })],
+    [`worker.getWorkers?{"companyId":"${companyId}","userId":"${userId}"}`, jsonResponse({
+      result: {
+        data: {
+          workers: [
+            { user: "worker-token", wage: 0.2, fidelity: 7 },
+          ],
+        },
+      },
+    })],
+    [`user.getUserLite?{"userId":"worker-token"}`, jsonResponse({
+      result: {
+        data: {
+          _id: "worker-token",
+          username: "Worker Token",
+          skills: {
+            energy: { total: 110 },
+            production: { total: 40 },
+          },
+        },
+      },
+    })],
+    ["country.getAllCountries?", jsonResponse({
+      result: {
+        data: [],
+      },
+    })],
+    ["region.getRegionsObject?", jsonResponse({
+      result: {
+        data: {},
+      },
+    })],
+  ]);
+
+  const fetchStub = async (url, init = {}) => {
+    const parsed = new URL(url);
+    const method = parsed.pathname.split("/").pop();
+    const input = parsed.searchParams.get("input");
+    const key = `${method}?${input || ""}`;
+    const response = responses.get(key);
+
+    if (method === "worker.getWorkers") {
+      workerRequestHeaders.push(new Headers(init.headers || {}).get("X-API-Key"));
+    }
+
+    if (!response) {
+      throw new Error(`Unexpected request: ${key}`);
+    }
+
+    return response.clone();
+  };
+
+  const imported = await importWareraUserData(userId, fetchStub, { apiToken: ` ${apiToken} ` });
+
+  assert.deepEqual(workerRequestHeaders, [apiToken]);
+  assert.equal(imported.summary.workersImported, 1);
+  assert.equal(imported.summary.workerListsUnavailable, 0);
+  assert.equal(imported.companyConfigs[0].workers[0].productionPerAction, 40);
 });
 
 test("callWareraApi returns a clear message when the browser blocks the request", async () => {

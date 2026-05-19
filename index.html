@@ -31,6 +31,22 @@
         </label>
         <button id="user-import-btn" type="submit">Import from WarEra</button>
       </form>
+      <div class="api-token-settings">
+        <div class="api-token-copy">
+          <h3>WarEra API Token</h3>
+          <p class="hint">Required for worker import. In WarEra, create or copy your token from Profile -> Settings, paste it here, then save before importing.</p>
+          <p class="hint">The token is stored only in this browser and sent to WarEra as X-API-Key.</p>
+        </div>
+        <div class="api-token-controls">
+          <label>
+            API Token
+            <input id="warera-api-token" type="password" placeholder="wae..." autocomplete="off" spellcheck="false">
+          </label>
+          <button id="warera-api-token-save-btn" type="button" class="secondary-btn">Save Token</button>
+          <button id="warera-api-token-clear-btn" type="button" class="secondary-btn">Clear</button>
+        </div>
+        <p id="warera-api-token-status" class="api-token-status hint" role="status" aria-live="polite"></p>
+      </div>
       <p id="user-import-status" class="status-banner hidden" role="status" aria-live="polite"></p>
       <div id="user-import-summary" class="user-import-summary hidden"></div>
     </section>

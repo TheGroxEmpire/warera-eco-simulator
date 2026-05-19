@@ -120,6 +120,36 @@ function normalizeApiErrorMessage(payload, fallback) {
   return rawMessage;
 }
 
+function getErrorMessage(err, fallback = "Unknown error") {
+  const message = typeof err?.message === "string" ? err.message.trim() : "";
+  return message || fallback;
+}
+
+function isAuthError(err) {
+  const message = getErrorMessage(err, "");
+  return Number(err?.status) === 401 || /\b(api token required|unauthorized|invalid token)\b/i.test(message);
+}
+
+function normalizeWareraApiToken(value) {
+  return String(value || "").trim();
+}
+
+function createWareraFetchWithApiToken(fetchImpl, apiToken) {
+  const normalizedToken = normalizeWareraApiToken(apiToken);
+  if (!normalizedToken) {
+    return fetchImpl;
+  }
+
+  return (url, init = {}) => {
+    const headers = new Headers(init?.headers || {});
+    headers.set("X-API-Key", normalizedToken);
+    return fetchImpl(url, {
+      ...init,
+      headers,
+    });
+  };
+}
+
 function normalizeProductionBonusOptions(options = {}) {
   return {
     ignoreDepositBonuses: options?.ignoreDepositBonuses === true || options?.ignoreDeposits === true,
@@ -128,15 +158,20 @@ function normalizeProductionBonusOptions(options = {}) {
 
 function normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions) {
   if (typeof fetchImplOrOptions === "function") {
+    const apiToken = normalizeWareraApiToken(maybeOptions?.apiToken ?? maybeOptions?.wareraApiToken);
     return {
       fetchImpl: fetchImplOrOptions,
       productionBonusOptions: normalizeProductionBonusOptions(maybeOptions),
+      apiToken,
     };
   }
 
+  const options = fetchImplOrOptions && typeof fetchImplOrOptions === "object" ? fetchImplOrOptions : {};
+  const apiToken = normalizeWareraApiToken(options?.apiToken ?? options?.wareraApiToken);
   return {
-    fetchImpl: globalThis.fetch,
-    productionBonusOptions: normalizeProductionBonusOptions(fetchImplOrOptions),
+    fetchImpl: typeof options.fetchImpl === "function" ? options.fetchImpl : globalThis.fetch,
+    productionBonusOptions: normalizeProductionBonusOptions(options),
+    apiToken,
   };
 }
 
@@ -511,6 +546,17 @@ export function buildImportedWorkerConfig(workerRecord, workerLite = null) {
   };
 }
 
+function getCompanyWorkerCount(companyLite) {
+  return Math.max(0, Math.floor(Number(companyLite?.workerCount) || 0));
+}
+
+function buildDefaultWorkerRecordsFromCompany(companyLite) {
+  return Array.from({ length: getCompanyWorkerCount(companyLite) }, () => ({
+    wage: DEFAULT_COMPANY_WAGE,
+    fidelity: 0,
+  }));
+}
+
 export function buildImportedCompanyConfig(
   companyLite,
   workers = [],
@@ -729,18 +775,43 @@ async function fetchImportedCompanies(userLite, fetchImpl, options = {}) {
   const companyConfigs = [];
   let workersImported = 0;
   let workerProfilesMissing = 0;
+  let workerListsUnavailable = 0;
+  let defaultWorkersAdded = 0;
   let companiesSkipped = 0;
+  const workerListErrorMessages = new Set();
+  let workerListAuthFailures = 0;
 
   const companyResults = await Promise.allSettled(companyIds.map(async (companyId) => {
-    const [companyLite, workerPayload] = await Promise.all([
-      callWareraApi("company.getById", { companyId }, fetchImpl),
-      callWareraApi("worker.getWorkers", { companyId, userId: userLite._id }, fetchImpl),
-    ]);
+    const companyLite = await callWareraApi("company.getById", { companyId }, fetchImpl);
 
-    return {
-      companyLite,
-      workers: Array.isArray(workerPayload?.workers) ? workerPayload.workers : [],
-    };
+    if (!resolveMaterialIdFromItemCode(companyLite?.itemCode)) {
+      return {
+        companyLite,
+        workers: [],
+        workersUnavailable: false,
+        defaultWorkerCount: 0,
+      };
+    }
+
+    try {
+      const workerPayload = await callWareraApi("worker.getWorkers", { companyId, userId: userLite._id }, fetchImpl);
+      return {
+        companyLite,
+        workers: Array.isArray(workerPayload?.workers) ? workerPayload.workers : [],
+        workersUnavailable: false,
+        defaultWorkerCount: 0,
+      };
+    } catch (err) {
+      const defaultWorkers = buildDefaultWorkerRecordsFromCompany(companyLite);
+
+      return {
+        companyLite,
+        workers: defaultWorkers,
+        workersUnavailable: true,
+        defaultWorkerCount: defaultWorkers.length,
+        workerError: err,
+      };
+    }
   }));
 
   const partyReference = await fetchRelevantRulingParties(companyResults, referenceData, fetchImpl);
@@ -757,7 +828,13 @@ async function fetchImportedCompanies(userLite, fetchImpl, options = {}) {
       continue;
     }
 
-    const { companyLite, workers } = result.value;
+    const {
+      companyLite,
+      workers,
+      workersUnavailable,
+      defaultWorkerCount,
+      workerError,
+    } = result.value;
     const { workerProfilesById, missingProfiles } = await fetchWorkerProfiles(workers, fetchImpl);
     const companyConfig = buildImportedCompanyConfig(companyLite, workers, workerProfilesById, referenceData);
 
@@ -768,8 +845,34 @@ async function fetchImportedCompanies(userLite, fetchImpl, options = {}) {
     }
 
     companyConfigs.push(companyConfig);
-    workersImported += workers.length;
+    if (workersUnavailable) {
+      workerListsUnavailable += 1;
+      defaultWorkersAdded += defaultWorkerCount;
+      workerListErrorMessages.add(getErrorMessage(workerError));
+      if (isAuthError(workerError)) {
+        workerListAuthFailures += 1;
+      }
+    } else {
+      workersImported += workers.length;
+    }
     workerProfilesMissing += missingProfiles;
+  }
+
+  if (workerListsUnavailable > 0) {
+    const firstErrorMessage = [...workerListErrorMessages].find(Boolean);
+    const hasApiToken = options?.apiTokenProvided === true;
+    const reasonText = firstErrorMessage ? ` WarEra said: ${firstErrorMessage}.` : "";
+    const defaultWorkerText = defaultWorkersAdded > 0
+      ? ` Added ${defaultWorkersAdded} default ${defaultWorkersAdded === 1 ? "worker" : "workers"} from public worker counts; edit worker stats manually if needed.`
+      : " Imported those companies without workers.";
+
+    if (workerListAuthFailures > 0 && !hasApiToken) {
+      warnings.push(`Worker data was not imported for ${workerListsUnavailable} ${workerListsUnavailable === 1 ? "company" : "companies"} because WarEra requires an API token for worker lists. Set your API token in section 1, WarEra API Token, then import again. Create the token in WarEra under Profile -> Settings.${defaultWorkerText}`);
+    } else if (workerListAuthFailures > 0) {
+      warnings.push(`Worker data was not imported for ${workerListsUnavailable} ${workerListsUnavailable === 1 ? "company" : "companies"}. WarEra rejected the saved API token or it lacks worker access.${reasonText} Check your token in section 1, WarEra API Token, then import again.${defaultWorkerText}`);
+    } else {
+      warnings.push(`Could not load private worker lists for ${workerListsUnavailable} ${workerListsUnavailable === 1 ? "company" : "companies"}.${reasonText}${defaultWorkerText}`);
+    }
   }
 
   return {
@@ -777,20 +880,23 @@ async function fetchImportedCompanies(userLite, fetchImpl, options = {}) {
     companyConfigs,
     workersImported,
     workerProfilesMissing,
+    workerListsUnavailable,
+    defaultWorkersAdded,
     companiesSkipped,
     warnings,
   };
 }
 
 export async function fetchMaxMaterialProductionBonuses(fetchImplOrOptions = globalThis.fetch, maybeOptions = {}) {
-  const { fetchImpl, productionBonusOptions } = normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions);
+  const { fetchImpl, productionBonusOptions, apiToken } = normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions);
+  const wareraFetchImpl = createWareraFetchWithApiToken(fetchImpl, apiToken);
 
   try {
     const [countries, regionsData] = await Promise.all([
-      callWareraApi("country.getAllCountries", undefined, fetchImpl),
+      callWareraApi("country.getAllCountries", undefined, wareraFetchImpl),
       productionBonusOptions.ignoreDepositBonuses
         ? Promise.resolve({})
-        : callWareraApi("region.getRegionsObject", undefined, fetchImpl),
+        : callWareraApi("region.getRegionsObject", undefined, wareraFetchImpl),
     ]);
 
     const countriesById = new Map(
@@ -811,7 +917,7 @@ export async function fetchMaxMaterialProductionBonuses(fetchImplOrOptions = glo
     // Fetch all relevant parties
     let partiesById = new Map();
     if (partyIds.length > 0) {
-      ({ partiesById } = await fetchPartiesByIds(partyIds, fetchImpl));
+      ({ partiesById } = await fetchPartiesByIds(partyIds, wareraFetchImpl));
     }
 
     const maxBonusByMaterial = {};
@@ -867,9 +973,13 @@ export async function fetchMaxMaterialProductionBonuses(fetchImplOrOptions = glo
 }
 
 export async function importWareraUserData(searchText, fetchImplOrOptions = globalThis.fetch, maybeOptions = {}) {
-  const { fetchImpl, productionBonusOptions } = normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions);
-  const { userLite, matchedBy, exactUsernameMatch, searchCandidateCount } = await resolveUserFromSearch(searchText, fetchImpl);
-  const importedCompanies = await fetchImportedCompanies(userLite, fetchImpl, productionBonusOptions);
+  const { fetchImpl, productionBonusOptions, apiToken } = normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions);
+  const wareraFetchImpl = createWareraFetchWithApiToken(fetchImpl, apiToken);
+  const { userLite, matchedBy, exactUsernameMatch, searchCandidateCount } = await resolveUserFromSearch(searchText, wareraFetchImpl);
+  const importedCompanies = await fetchImportedCompanies(userLite, wareraFetchImpl, {
+    ...productionBonusOptions,
+    apiTokenProvided: Boolean(apiToken),
+  });
 
   return {
     level: Math.max(1, Math.floor(Number(userLite?.leveling?.level) || 1)),
@@ -895,6 +1005,8 @@ export async function importWareraUserData(searchText, fetchImplOrOptions = glob
       companiesSkipped: importedCompanies.companiesSkipped,
       workersImported: importedCompanies.workersImported,
       workerProfilesMissing: importedCompanies.workerProfilesMissing,
+      workerListsUnavailable: importedCompanies.workerListsUnavailable,
+      defaultWorkersAdded: importedCompanies.defaultWorkersAdded,
     },
     warnings: importedCompanies.warnings,
   };

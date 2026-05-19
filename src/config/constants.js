@@ -33,6 +33,7 @@ export const CYCLES_PER_DAY = 24 / 10;
 export const STORAGE_KEY = "warera-eco-simulator-v2";
 export const COMPARE_STORAGE_KEY = "warera-eco-simulator-compare-v1";
 export const LEGACY_REFERENCE_STORAGE_KEY = "warera-eco-simulator-reference-v1";
+export const WARERA_API_TOKEN_STORAGE_KEY = "warera-eco-simulator-warera-api-token-v1";
 export const PRICE_API_URL = "https://api2.warera.io/trpc/itemTrading.getPrices";
 
 export const MATERIALS = [
