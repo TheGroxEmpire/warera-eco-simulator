@@ -152,19 +152,24 @@ function saveWareraApiToken(token) {
   }
 }
 
-function getWareraApiTokenForImport() {
+function getWareraApiTokenForWareraRequests() {
   const inputEl = document.getElementById("warera-api-token");
   const inputToken = normalizeWareraApiToken(inputEl?.value);
   const storedToken = getStoredWareraApiToken();
 
   if (inputToken && inputToken !== storedToken) {
     if (saveWareraApiToken(inputToken)) {
-      setApiTokenStatus("API token saved. Worker lists will be requested during import.", "success");
+      setApiTokenStatus("API token saved. WarEra requests will include it.", "success");
     }
     return inputToken;
   }
 
   return inputToken || storedToken;
+}
+
+function getWareraRequestHeaders(apiToken = getWareraApiTokenForWareraRequests()) {
+  const token = normalizeWareraApiToken(apiToken);
+  return token ? { "X-API-Key": token } : {};
 }
 
 function loadWareraApiTokenSetting() {
@@ -175,7 +180,7 @@ function loadWareraApiTokenSetting() {
   }
 
   if (token) {
-    setApiTokenStatus("API token saved in this browser. Worker lists will be requested during import.", "success");
+    setApiTokenStatus("API token saved in this browser. WarEra requests will include it.", "success");
   } else {
     setApiTokenStatus("No API token saved. Companies can import, but worker lists require a token.", "warning");
   }
@@ -190,7 +195,7 @@ function saveWareraApiTokenFromInput() {
 
   if (token) {
     if (inputEl) inputEl.value = token;
-    setApiTokenStatus("API token saved. Import again to include worker lists.", "success");
+    setApiTokenStatus("API token saved. WarEra requests will include it; import again to include worker lists.", "success");
   } else {
     setApiTokenStatus("API token cleared. Worker lists will not import until a token is saved.", "warning");
   }
@@ -732,7 +737,9 @@ function updateCompareSnapshotsWithPrices(prices, savedAt = new Date().toISOStri
 }
 
 async function fetchLatestPricesFromApi() {
-  const response = await fetch(PRICE_API_URL);
+  const response = await fetch(PRICE_API_URL, {
+    headers: getWareraRequestHeaders(),
+  });
   if (!response.ok) {
     const error = new Error(`HTTP ${response.status}`);
     error.status = response.status;
@@ -935,7 +942,7 @@ async function importUserFromApi() {
     const productionBonusSourceLabel = ignoreDepositBonuses
       ? "country and ruling party data"
       : "country, active deposit, and ruling party data";
-    const apiToken = getWareraApiTokenForImport();
+    const apiToken = getWareraApiTokenForWareraRequests();
     const imported = await importWareraUserData(searchInput.value, globalThis.fetch, { ignoreDepositBonuses, apiToken });
     const workerStatsLabel = imported.summary.workerListsUnavailable > 0 ? "available worker stats" : "worker stats";
     const successMessagePrefix = `Imported ${imported.user.username}. Skills, level, companies, ${workerStatsLabel}, company production bonuses from ${productionBonusSourceLabel}, company wages, and maximum material production bonuses were refreshed. Your own wage stays manual.`;
@@ -1273,7 +1280,8 @@ async function syncProductionBonusesFromApi() {
     const depositLabel = ignoreDepositBonuses ? " without active deposit bonuses" : "";
     setStatusMessage(statusEl, `Fetching production bonuses from WarEra API${depositLabel}...`, "info");
 
-    const maxBonuses = await fetchMaxMaterialProductionBonuses(globalThis.fetch, { ignoreDepositBonuses });
+    const apiToken = getWareraApiTokenForWareraRequests();
+    const maxBonuses = await fetchMaxMaterialProductionBonuses(globalThis.fetch, { ignoreDepositBonuses, apiToken });
 
     MATERIALS.forEach((material) => {
       const inputEl = document.getElementById(`material-bonus-${material.id}`);

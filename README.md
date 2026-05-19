@@ -44,6 +44,16 @@ npm run check   # syntax checks for modular source files
 npm test        # core simulation/optimizer tests (node:test)
 ```
 
+Optional live WarEra API-token test:
+
+```bash
+cp .env.test.example .env.test
+# edit .env.test and set WARERA_API_TOKEN
+npm run test:live
+```
+
+`.env.test` is ignored by git. `WARERA_TEST_USER_ID` is optional; it overrides the default live-test user if you want to verify a different account with at least one company.
+
 No build step is required. The app runs directly in the browser via ES modules.
 
 ## Code structure

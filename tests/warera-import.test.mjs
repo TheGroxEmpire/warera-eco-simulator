@@ -1,5 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import {
   callWareraApi,
@@ -10,6 +14,57 @@ import {
   importWareraUserData,
   resolveMaterialIdFromItemCode,
 } from "../src/integrations/warera-import.js";
+
+const TEST_ENV_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.env.test");
+const DEFAULT_LIVE_TEST_USER_ID = "698f5c7311b28721ff537bf6";
+
+function unquoteEnvValue(value) {
+  const trimmed = String(value || "").trim();
+  if (
+    (trimmed.startsWith("\"") && trimmed.endsWith("\""))
+    || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function loadTestEnvFile(filePath = TEST_ENV_PATH) {
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+
+  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = unquoteEnvValue(trimmed.slice(separatorIndex + 1));
+    if (!key || process.env[key] !== undefined) {
+      continue;
+    }
+
+    process.env[key] = value;
+  }
+}
+
+loadTestEnvFile();
+
+function getTestEnvValue(key) {
+  return String(process.env[key] || "").trim();
+}
+
+function getLiveTestUserId() {
+  return getTestEnvValue("WARERA_TEST_USER_ID") || DEFAULT_LIVE_TEST_USER_ID;
+}
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -599,6 +654,22 @@ test("importWareraUserData sends a saved API token as X-API-Key", async () => {
   assert.equal(imported.companyConfigs[0].workers[0].productionPerAction, 40);
 });
 
+test("live WarEra API token imports worker lists", {
+  skip: !getTestEnvValue("WARERA_API_TOKEN")
+    ? "Set WARERA_API_TOKEN in .env.test to run this live test."
+    : false,
+}, async () => {
+  const imported = await importWareraUserData(getLiveTestUserId(), globalThis.fetch, {
+    apiToken: getTestEnvValue("WARERA_API_TOKEN"),
+    ignoreDepositBonuses: true,
+  });
+  const warnings = imported.warnings.join(" ");
+
+  assert.ok(imported.summary.companiesFound > 0, "The live test user should have at least one company.");
+  assert.equal(imported.summary.workerListsUnavailable, 0, warnings);
+  assert.doesNotMatch(warnings, /API token required|requires an API token|rejected the saved API token/i);
+});
+
 test("callWareraApi returns a clear message when the browser blocks the request", async () => {
   await assert.rejects(
     () => callWareraApi("search.searchAnything", { searchText: "Grox" }, async () => {
@@ -676,6 +747,72 @@ test("fetchMaxMaterialProductionBonuses can ignore active deposit bonuses", asyn
   assert.equal(withDeposits.fish, 38);
   assert.equal(withoutDeposits.fish, 8);
   assert.equal(regionRequests, 1);
+});
+
+test("fetchMaxMaterialProductionBonuses sends the API token to every WarEra request", async () => {
+  const apiToken = "wae_bonus_token";
+  const seenHeadersByMethod = new Map();
+  const fetchStub = async (url, init = {}) => {
+    const parsed = new URL(url);
+    const method = parsed.pathname.split("/").pop();
+    seenHeadersByMethod.set(method, new Headers(init.headers || {}).get("X-API-Key"));
+
+    if (method === "country.getAllCountries") {
+      return jsonResponse({
+        result: {
+          data: [
+            {
+              _id: "country-1",
+              specializedItem: "iron",
+              rulingParty: "party-1",
+              strategicResources: {
+                bonuses: {
+                  productionPercent: 8,
+                },
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    if (method === "region.getRegionsObject") {
+      return jsonResponse({
+        result: {
+          data: {
+            "region-1": {
+              _id: "region-1",
+              country: "country-1",
+            },
+          },
+        },
+      });
+    }
+
+    if (method === "party.getById") {
+      return jsonResponse([
+        {
+          result: {
+            data: {
+              _id: "party-1",
+              ethics: {
+                industrialism: 2,
+              },
+            },
+          },
+        },
+      ]);
+    }
+
+    throw new Error(`Unexpected request: ${method}`);
+  };
+
+  const bonuses = await fetchMaxMaterialProductionBonuses(fetchStub, { apiToken });
+
+  assert.equal(bonuses.iron, 38);
+  assert.equal(seenHeadersByMethod.get("country.getAllCountries"), apiToken);
+  assert.equal(seenHeadersByMethod.get("region.getRegionsObject"), apiToken);
+  assert.equal(seenHeadersByMethod.get("party.getById"), apiToken);
 });
 
 test("fetchMaxMaterialProductionBonuses preserves rate limit status", async () => {

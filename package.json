@@ -6,6 +6,7 @@
   "scripts": {
     "check": "node --check src/main.js && node --check src/config/constants.js && node --check src/core/math.js && node --check src/core/simulation.js && node --check src/core/optimizer.js && node --check src/integrations/warera-import.js && node --check src/state/company-state.js && node --check src/state/compare-state.js && node --check src/ui/editor.js && node --check src/ui/events.js && node --check src/ui/results.js",
     "test": "node --test",
+    "test:live": "node --test --test-name-pattern \"live WarEra API token\"",
     "lint": "npm run check"
   }
 }
