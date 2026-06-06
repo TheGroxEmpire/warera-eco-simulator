@@ -256,7 +256,8 @@ label {
 
 input,
 select,
-button {
+button,
+textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -268,7 +269,8 @@ button {
 
 input:focus,
 select:focus,
-button:focus {
+button:focus,
+textarea:focus {
   outline: 2px solid rgba(15, 138, 118, 0.3);
   outline-offset: 1px;
 }
@@ -562,6 +564,117 @@ button:hover {
   margin-top: 0;
 }
 
+.export-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(35, 51, 55, 0.28);
+  backdrop-filter: blur(4px);
+}
+
+.export-modal.hidden {
+  display: none;
+}
+
+.export-dialog {
+  width: min(980px, 96vw);
+  max-height: 92vh;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 18px 46px rgba(34, 61, 55, 0.22);
+  padding: 1rem;
+  display: grid;
+  gap: 0.85rem;
+  backdrop-filter: blur(6px);
+}
+
+.export-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.75rem;
+}
+
+.export-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.export-close-btn {
+  width: auto;
+  margin: 0;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid rgba(35, 51, 55, 0.25);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--accent-strong);
+  border-radius: 10px;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.export-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(145px, 1fr));
+  gap: 0.8rem 1.4rem;
+}
+
+.export-check {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--ink);
+  font-size: 0.92rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+  padding: 0.45rem 0.55rem;
+}
+
+.export-check input[type="checkbox"] {
+  width: auto;
+  height: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.export-link-output {
+  min-height: 40vh;
+  resize: vertical;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.78);
+  border-color: var(--line);
+  line-height: 1.45;
+  font-size: 0.86rem;
+}
+
+.export-actions {
+  display: grid;
+  grid-template-columns: 1fr minmax(160px, 210px);
+  gap: 1rem;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 0.85rem;
+}
+
+.export-actions .hint {
+  margin: 0;
+  color: var(--muted);
+}
+
+.export-actions button {
+  margin: 0;
+  border-color: var(--accent);
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+  color: #fff;
+}
+
 .delta-positive {
   color: #1c8d47;
   font-weight: 700;
@@ -664,5 +777,14 @@ button:hover {
 
   .user-import-summary-card {
     align-items: flex-start;
+  }
+
+  .export-options,
+  .export-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .export-link-output {
+    min-height: 38vh;
   }
 }

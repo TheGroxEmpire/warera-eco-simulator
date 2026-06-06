@@ -27,6 +27,15 @@ import {
   getPriceSyncSummary,
   updateCompareSlotsWithPrices,
 } from "./state/compare-state.js?v=20260330-09";
+import {
+  buildConfigSharePayload,
+  buildConfigShareUrl,
+  buildPlannerExportPayload,
+  buildPlannerExportUrl,
+  createScenarioExport,
+  decodePlannerExportPayload,
+  getConfigShareParamName,
+} from "./state/planner-export.js?v=20260330-09";
 import { createCompanyState } from "./state/company-state.js?v=20260330-09";
 import { createEditorUI } from "./ui/editor.js?v=20260330-09";
 import { bindEvents as bindUiEvents } from "./ui/events.js?v=20260330-09";
@@ -56,6 +65,7 @@ let priceDataSyncedAt = null;
 let bonusDataSyncedAt = null;
 let priceDataSyncedThisSession = false;
 let bonusDataSyncedThisSession = false;
+let exportMode = "config";
 
 const DEFAULT_PRICE_VALUE = 1;
 const DEFAULT_PRODUCTION_BONUS_VALUE = 0;
@@ -1193,6 +1203,209 @@ function copyCurrentScenarioToOtherSlot() {
   rerenderFromCurrentState();
 }
 
+function getExportIncludesFromInputs() {
+  const include = {};
+  document.querySelectorAll(".export-option").forEach((input) => {
+    if (!input?.dataset?.exportPart) {
+      return;
+    }
+    include[input.dataset.exportPart] = input.checked === true;
+  });
+  return include;
+}
+
+function setExportOption(index, part, label, checked = true) {
+  const input = document.getElementById(`export-option-${index}`);
+  const labelEl = document.getElementById(`export-option-${index}-label`);
+  if (input) {
+    input.dataset.exportPart = part;
+    input.checked = checked;
+  }
+  if (labelEl) {
+    labelEl.textContent = label;
+  }
+}
+
+function configureExportModal(mode) {
+  exportMode = mode === "planner" ? "planner" : "config";
+  const title = document.getElementById("export-modal-title");
+  if (exportMode === "planner") {
+    if (title) title.textContent = "War Planner Export";
+    setExportOption(1, "eco", "Eco Result A");
+    setExportOption(2, "war", "War Result B");
+    setExportOption(3, "skills", "Skill Usage");
+    setExportOption(4, "player", "Player");
+  } else {
+    if (title) title.textContent = "Share Simulation Configuration";
+    setExportOption(1, "slotA", "Scenario A");
+    setExportOption(2, "slotB", "Scenario B");
+    setExportOption(3, "prices", "Prices & Bonuses");
+    setExportOption(4, "player", "Player");
+  }
+}
+
+function getScenarioExportForSlot(slot, role) {
+  const snapshot = normalizeSnapshot(compareState.slots?.[slot]);
+  if (!snapshot) {
+    return null;
+  }
+  const result = simulateFromSnapshot(snapshot);
+  return createScenarioExport({ role, slot, snapshot, result });
+}
+
+async function buildCurrentPlannerExportLink() {
+  saveCurrentToActiveCompareSlot();
+
+  const include = getExportIncludesFromInputs();
+  const payload = buildPlannerExportPayload({
+    ecoScenario: getScenarioExportForSlot("A", "eco"),
+    warScenario: getScenarioExportForSlot("B", "war"),
+    include,
+  });
+
+  return buildPlannerExportUrl({
+    origin: window.location.origin,
+    pathname: "/eco-simulator/",
+    payload,
+  });
+}
+
+async function buildCurrentConfigShareLink() {
+  saveCurrentToActiveCompareSlot();
+
+  const include = getExportIncludesFromInputs();
+  const payload = buildConfigSharePayload({
+    active: compareState.active,
+    slotA: compareState.slots?.A,
+    slotB: compareState.slots?.B,
+    include,
+  });
+
+  return buildConfigShareUrl({
+    origin: window.location.origin,
+    pathname: "/eco-simulator/",
+    payload,
+  });
+}
+
+function buildCurrentExportLink() {
+  return exportMode === "planner"
+    ? buildCurrentPlannerExportLink()
+    : buildCurrentConfigShareLink();
+}
+
+async function refreshExportLink() {
+  const output = document.getElementById("export-link-output");
+  const status = document.getElementById("export-status");
+  if (!output) {
+    return;
+  }
+
+  try {
+    output.value = "Building compressed link...";
+    output.value = await buildCurrentExportLink();
+    if (status) {
+      status.textContent = exportMode === "planner"
+        ? "Compressed War Planner export. Scenario A exports as eco result, Scenario B as war result."
+        : "Compressed share link. Opening it restores the selected simulator configuration.";
+    }
+  } catch (err) {
+    output.value = "";
+    if (status) {
+      status.textContent = "Could not build the export link.";
+    }
+    console.error("Export link build failed:", err);
+  }
+}
+
+function openExportModal(mode = "config") {
+  const modal = document.getElementById("export-modal");
+  if (!modal) {
+    return;
+  }
+  configureExportModal(mode);
+  refreshExportLink();
+  modal.classList.remove("hidden");
+  document.getElementById("export-link-output")?.focus();
+}
+
+function closeExportModal() {
+  document.getElementById("export-modal")?.classList.add("hidden");
+}
+
+async function copyExportLink() {
+  const output = document.getElementById("export-link-output");
+  const button = document.getElementById("export-copy-btn");
+  if (!output?.value) {
+    return;
+  }
+
+  const originalLabel = button?.textContent || "Copy";
+  output.select();
+  try {
+    await navigator.clipboard.writeText(output.value);
+  } catch {
+    document.execCommand("copy");
+  }
+
+  if (button) {
+    button.textContent = "Copied";
+    window.setTimeout(() => {
+      button.textContent = originalLabel;
+    }, 1400);
+  }
+}
+
+function removeQueryParamFromLocation(paramName) {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has(paramName)) {
+    return;
+  }
+  url.searchParams.delete(paramName);
+  const suffix = `${url.search}${url.hash}`;
+  window.history.replaceState({}, "", `${url.pathname}${suffix}`);
+}
+
+async function applySharedConfigFromUrl() {
+  const paramName = getConfigShareParamName();
+  const encoded = new URLSearchParams(window.location.search).get(paramName);
+  if (!encoded) {
+    return false;
+  }
+
+  try {
+    const payload = await decodePlannerExportPayload(encoded);
+    if (!payload || payload.source !== "warera-eco-simulator-config" || !payload.slots) {
+      throw new Error("Invalid Eco Simulator share link.");
+    }
+
+    const slotA = normalizeSnapshot(payload.slots.A);
+    const slotB = normalizeSnapshot(payload.slots.B);
+    if (!slotA && !slotB) {
+      throw new Error("The share link does not contain a simulator scenario.");
+    }
+
+    const active = payload.active === "B" && slotB ? "B" : (slotA ? "A" : "B");
+    compareState = {
+      active,
+      slots: {
+        A: slotA,
+        B: slotB,
+      },
+    };
+    saveCompareState();
+    removeQueryParamFromLocation(paramName);
+    return true;
+  } catch (err) {
+    console.error("Failed to apply Eco Simulator share link:", err);
+    const optimizerStatusEl = document.getElementById("optimizer-status");
+    if (optimizerStatusEl) {
+      optimizerStatusEl.textContent = "Could not load the shared simulator configuration.";
+    }
+    return false;
+  }
+}
+
 async function switchCompareScenario() {
   const toggleBtn = document.getElementById("compare-switch-btn");
   const copyBtn = document.getElementById("compare-copy-btn");
@@ -1331,7 +1544,29 @@ function bindApiTokenEvents() {
   document.getElementById("warera-api-token-clear-btn")?.addEventListener("click", clearWareraApiToken);
 }
 
-function init() {
+function bindExportEvents() {
+  document.getElementById("share-config-btn")?.addEventListener("click", () => openExportModal("config"));
+  document.getElementById("export-war-planner-btn")?.addEventListener("click", () => openExportModal("planner"));
+  document.getElementById("export-close-btn")?.addEventListener("click", closeExportModal);
+  document.getElementById("export-copy-btn")?.addEventListener("click", copyExportLink);
+  document.querySelectorAll(".export-option").forEach((input) => {
+    input.addEventListener("change", () => {
+      refreshExportLink();
+    });
+  });
+  document.getElementById("export-modal")?.addEventListener("click", (event) => {
+    if (event.target?.id === "export-modal") {
+      closeExportModal();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeExportModal();
+    }
+  });
+}
+
+async function init() {
   editorUI = createEditorUI({
     getConfigFromInputs,
     getAllocationsFromInputs,
@@ -1352,10 +1587,12 @@ function init() {
   setCompanyConfigs([createDefaultCompanyConfig("iron"), createDefaultCompanyConfig("steel")]);
   loadState();
   loadCompareState();
+  await applySharedConfigFromUrl();
   loadWareraApiTokenSetting();
   applySnapshotToInputs(compareState.slots[compareState.active], false);
   bindEvents();
   bindApiTokenEvents();
+  bindExportEvents();
 
   rerenderFromCurrentState();
 

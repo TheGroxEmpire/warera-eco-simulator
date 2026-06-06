@@ -10,30 +10,56 @@ Browser-only simulator for WarEra economy optimization.
 
 Docker is not mandatory, but it is the most reliable way to run the same app config on this server and future servers.
 
-## Run options
+## Run Options
 
-### Option A (Recommended): Docker behind Traefik
+### Docker Locally
 
 ```bash
 docker compose up -d --build
 ```
 
-Current `docker-compose.yml` is configured for Traefik (`proxy` network + labels).
+Open: `http://localhost:8080/eco-simulator/`
 
-1. Point DNS to your server, for example:
-   - `warera.yourdomain.com -> <your-server-public-ip>`
-2. (Optional) Override hostname:
-   - `WARERA_HOST=warera.yourdomain.com docker compose up -d --build`
-3. Open:
-   - `https://warera.yourdomain.com/eco-simulator/`
+### Docker Behind Traefik
 
-### Option B: No Docker
+```bash
+docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d --build
+```
+
+Open: `https://warera.xorgress.com/eco-simulator/`
+
+The Traefik override removes the direct host port binding, joins the external proxy network, and routes `WARERA_HOST` plus `APP_BASE_PATH` to the Nginx container.
+
+### No Docker
 
 ```bash
 python3 -m http.server 8080
 ```
 
 Open: `http://<server-ip>:8080`
+
+## Deployment
+
+This repository includes the same GitHub Actions deployment pattern used by WarEra Monetary Watch. Pushes to `master` or `main` run CI, then the deploy workflow SSHes into the server, pulls the pushed branch, and runs `scripts/deploy.sh`.
+
+Configure these repository secrets:
+
+- `DEPLOY_HOST`
+- `DEPLOY_USER`
+- `DEPLOY_SSH_KEY`
+- `DEPLOY_PORT`
+- `DEPLOY_PATH` set to `/home/opc/docker/warera-eco-simulator`
+- `DEPLOY_ENABLE_TRAEFIK` set to `1`
+
+Configure this repository variable so the deployment appears with the correct link on the GitHub Deployments page:
+
+- `DEPLOY_URL` set to `https://warera.xorgress.com/eco-simulator/`
+
+Manual server deploy:
+
+```bash
+ENABLE_TRAEFIK=1 bash scripts/deploy.sh
+```
 
 ## Development checks
 

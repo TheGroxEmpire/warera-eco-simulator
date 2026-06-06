@@ -1,0 +1,20 @@
+services:
+  web:
+    ports: !reset []
+    networks:
+      - default
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${PROXY_NETWORK:-proxy}"
+      - "traefik.http.routers.warera-eco-simulator.rule=Host(`${WARERA_HOST:-warera.xorgress.com}`) && (Path(`${APP_BASE_PATH:-/eco-simulator}`) || PathPrefix(`${APP_BASE_PATH:-/eco-simulator}/`))"
+      - "traefik.http.routers.warera-eco-simulator.entrypoints=https"
+      - "traefik.http.routers.warera-eco-simulator.tls=true"
+      - "traefik.http.routers.warera-eco-simulator.priority=100"
+      - "traefik.http.routers.warera-eco-simulator.service=warera-eco-simulator"
+      - "traefik.http.services.warera-eco-simulator.loadbalancer.server.port=80"
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}

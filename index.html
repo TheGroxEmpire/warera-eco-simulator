@@ -193,12 +193,45 @@
       <div class="reference-controls">
         <button id="compare-switch-btn" type="button" class="secondary-btn">Switch to Scenario B</button>
         <button id="compare-copy-btn" type="button" class="secondary-btn">Copy to Scenario B</button>
+        <button id="share-config-btn" type="button" class="secondary-btn">Share Simulation Configuration</button>
+        <button id="export-war-planner-btn" type="button" class="secondary-btn">War Planner Export</button>
       </div>
       <p id="reference-status" class="hint">Scenario A is active and auto-saved on every change.</p>
       <p id="caps-warning" class="warning hidden"></p>
       <div id="result-grid" class="result-grid"></div>
     </section>
   </main>
+  <div id="export-modal" class="export-modal hidden" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
+    <div class="export-dialog">
+      <div class="export-head">
+        <h2 id="export-modal-title">Share Simulation Configuration</h2>
+        <button id="export-close-btn" class="export-close-btn" type="button" aria-label="Close">x</button>
+      </div>
+      <div class="export-options">
+        <label class="export-check">
+          <input id="export-option-1" class="export-option" type="checkbox" data-export-part="slotA" checked>
+          <span id="export-option-1-label">Scenario A</span>
+        </label>
+        <label class="export-check">
+          <input id="export-option-2" class="export-option" type="checkbox" data-export-part="slotB" checked>
+          <span id="export-option-2-label">Scenario B</span>
+        </label>
+        <label class="export-check">
+          <input id="export-option-3" class="export-option" type="checkbox" data-export-part="prices" checked>
+          <span id="export-option-3-label">Prices &amp; Bonuses</span>
+        </label>
+        <label class="export-check">
+          <input id="export-option-4" class="export-option" type="checkbox" data-export-part="player" checked>
+          <span id="export-option-4-label">Player</span>
+        </label>
+      </div>
+      <textarea id="export-link-output" class="export-link-output mono" readonly spellcheck="false"></textarea>
+      <div class="export-actions">
+        <p id="export-status" class="hint" role="status" aria-live="polite"></p>
+        <button id="export-copy-btn" type="button">Copy</button>
+      </div>
+    </div>
+  </div>
   <script type="module" src="./src/main.js?v=20260330-09"></script>
 </body>
 </html>
