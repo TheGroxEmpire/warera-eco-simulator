@@ -128,6 +128,20 @@ body {
   margin-top: 0;
 }
 
+.import-options-group {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.import-options-group h3 {
+  margin: 0;
+}
+
+.import-options-group .hint {
+  margin: 0.25rem 0 0;
+}
+
 .api-token-settings {
   margin-top: 0.8rem;
   border: 1px solid var(--line);
@@ -619,12 +633,14 @@ button:hover {
   line-height: 1;
 }
 
+.import-options,
 .export-options {
   display: grid;
   grid-template-columns: repeat(4, minmax(145px, 1fr));
   gap: 0.8rem 1.4rem;
 }
 
+.import-check,
 .export-check {
   display: flex;
   align-items: center;
@@ -637,6 +653,7 @@ button:hover {
   padding: 0.45rem 0.55rem;
 }
 
+.import-check input[type="checkbox"],
 .export-check input[type="checkbox"] {
   width: auto;
   height: auto;
@@ -779,6 +796,7 @@ button:hover {
     align-items: flex-start;
   }
 
+  .import-options,
   .export-options,
   .export-actions {
     grid-template-columns: 1fr;

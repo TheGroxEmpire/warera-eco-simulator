@@ -66,6 +66,10 @@ function getLiveTestUserId() {
   return getTestEnvValue("WARERA_TEST_USER_ID") || DEFAULT_LIVE_TEST_USER_ID;
 }
 
+function shouldRunLiveWareraTests() {
+  return getTestEnvValue("WARERA_RUN_LIVE_TESTS") === "1";
+}
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -78,6 +82,8 @@ function jsonResponse(body, status = 200) {
 test("resolveMaterialIdFromItemCode maps WarEra API item codes to simulator materials", () => {
   assert.equal(resolveMaterialIdFromItemCode("cookedFish"), "cooked_fish");
   assert.equal(resolveMaterialIdFromItemCode("lightAmmo"), "light_ammo");
+  assert.equal(resolveMaterialIdFromItemCode("wood"), "wood");
+  assert.equal(resolveMaterialIdFromItemCode("paper"), "paper");
   assert.equal(resolveMaterialIdFromItemCode("coca"), "mysterious_plant");
   assert.equal(resolveMaterialIdFromItemCode("scraps"), null);
 });
@@ -144,6 +150,24 @@ test("country and region bonus helpers derive company production bonus from spec
       },
     },
   };
+  const woodCountry = {
+    _id: "country-4",
+    specializedItem: "wood",
+    strategicResources: {
+      bonuses: {
+        productionPercent: 7,
+      },
+    },
+  };
+  const paperCountry = {
+    _id: "country-5",
+    specializedItem: "paper",
+    strategicResources: {
+      bonuses: {
+        productionPercent: 7,
+      },
+    },
+  };
   const company = {
     itemCode: "cookedFish",
     region: "region-1",
@@ -165,6 +189,8 @@ test("country and region bonus helpers derive company production bonus from spec
   assert.equal(getCountryProductionBonusPct(country, "cooked_fish", industrialParty), 12.5);
   assert.equal(getCountryProductionBonusPct(ironCountry, "iron", industrialParty), 42.5);
   assert.equal(getRegionDepositProductionBonusPct(region, "cooked_fish", "2026-03-30T00:00:00.000Z", industrialParty), 0);
+  assert.equal(getCountryProductionBonusPct(woodCountry, "wood", industrialParty), 37);
+  assert.equal(getCountryProductionBonusPct(paperCountry, "paper", industrialParty), 37);
   assert.equal(getCountryProductionBonusPct(country, "cooked_fish", agrarianParty), 0);
   assert.equal(getRegionDepositProductionBonusPct(region, "cooked_fish", "2026-03-30T00:00:00.000Z", agrarianParty), 0);
   assert.equal(getCountryProductionBonusPct(fishCountry, "fish", agrarianParty), 0);
@@ -554,8 +580,10 @@ test("importWareraUserData keeps a company when its private worker list requires
 test("importWareraUserData sends a saved API token as X-API-Key", async () => {
   const userId = "aaaaaaaaaaaaaaaaaaaaaaaa";
   const companyId = "company-token";
+  const employerId = "employer-token";
+  const outsideCompanyId = "outside-company";
   const apiToken = "wae_test_token";
-  const workerRequestHeaders = [];
+  const privateRequestHeaders = [];
   const responses = new Map([
     [`user.getUserLite?{"userId":"${userId}"}`, jsonResponse({
       result: {
@@ -570,6 +598,60 @@ test("importWareraUserData sends a saved API token as X-API-Key", async () => {
             companies: { level: 1 },
             management: { level: 1 },
           },
+        },
+      },
+    })],
+    [`transaction.getPaginatedTransactions?{"userId":"${userId}","transactionType":"wage","limit":25}`, jsonResponse({
+      result: {
+        data: {
+          items: [
+            {
+              _id: "wage-tx",
+              sellerId: userId,
+              buyerId: employerId,
+              transactionType: "wage",
+              money: 1.06,
+              quantity: 10,
+              createdAt: "2026-06-10T18:04:01.989Z",
+            },
+          ],
+        },
+      },
+    })],
+    [`worker.getWorkers?{"userId":"${employerId}"}`, jsonResponse({
+      result: {
+        data: {
+          type: "user",
+          workersPerCompany: [
+            {
+              company: {
+                _id: outsideCompanyId,
+                name: "Outside Co",
+                itemCode: "iron",
+              },
+              workers: [
+                {
+                  _id: "outside-worker",
+                  user: userId,
+                  company: outsideCompanyId,
+                  employer: employerId,
+                  wage: 0.106,
+                  fidelity: 8,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    })],
+    [`company.getById?{"companyId":"${outsideCompanyId}"}`, jsonResponse({
+      result: {
+        data: {
+          _id: outsideCompanyId,
+          user: employerId,
+          name: "Outside Co",
+          itemCode: "iron",
+          region: "region-outside",
         },
       },
     })],
@@ -635,8 +717,8 @@ test("importWareraUserData sends a saved API token as X-API-Key", async () => {
     const key = `${method}?${input || ""}`;
     const response = responses.get(key);
 
-    if (method === "worker.getWorkers") {
-      workerRequestHeaders.push(new Headers(init.headers || {}).get("X-API-Key"));
+    if (method === "worker.getWorkers" || method === "transaction.getPaginatedTransactions") {
+      privateRequestHeaders.push(new Headers(init.headers || {}).get("X-API-Key"));
     }
 
     if (!response) {
@@ -648,16 +730,152 @@ test("importWareraUserData sends a saved API token as X-API-Key", async () => {
 
   const imported = await importWareraUserData(userId, fetchStub, { apiToken: ` ${apiToken} ` });
 
-  assert.deepEqual(workerRequestHeaders, [apiToken]);
+  assert.deepEqual(privateRequestHeaders, [apiToken, apiToken, apiToken]);
   assert.equal(imported.summary.workersImported, 1);
   assert.equal(imported.summary.workerListsUnavailable, 0);
+  assert.equal(imported.summary.ownWageImported, true);
+  assert.equal(imported.summary.wageTransactionsScanned, 1);
+  assert.equal(imported.ownWagePerPP, 0.106);
+  assert.deepEqual(imported.ownWageSource.company, {
+    id: outsideCompanyId,
+    name: "Outside Co",
+    ownerId: employerId,
+  });
   assert.equal(imported.companyConfigs[0].workers[0].productionPerAction, 40);
 });
 
+test("importWareraUserData skips unchecked worker and wage imports", async () => {
+  const userId = "bbbbbbbbbbbbbbbbbbbbbbbb";
+  const companyId = "company-no-workers";
+  const requestedMethods = [];
+  const responses = new Map([
+    [`user.getUserLite?{"userId":"${userId}"}`, jsonResponse({
+      result: {
+        data: {
+          _id: userId,
+          username: "SelectiveUser",
+          leveling: { level: 12 },
+          skills: {
+            energy: { level: 2 },
+            entrepreneurship: { level: 3 },
+            production: { level: 4 },
+            companies: { level: 5 },
+            management: { level: 6 },
+          },
+        },
+      },
+    })],
+    [`company.getCompanies?{"userId":"${userId}","perPage":100}`, jsonResponse({
+      result: {
+        data: {
+          items: [companyId],
+        },
+      },
+    })],
+    [`company.getById?{"companyId":"${companyId}"}`, jsonResponse({
+      result: {
+        data: {
+          _id: companyId,
+          user: userId,
+          name: "No Worker Co",
+          itemCode: "iron",
+          region: "region-selective",
+          workerCount: 3,
+          activeUpgradeLevels: {
+            automatedEngine: 4,
+          },
+        },
+      },
+    })],
+    ["country.getAllCountries?", jsonResponse({
+      result: {
+        data: [],
+      },
+    })],
+    ["region.getRegionsObject?", jsonResponse({
+      result: {
+        data: {},
+      },
+    })],
+  ]);
+
+  const fetchStub = async (url) => {
+    const parsed = new URL(url);
+    const method = parsed.pathname.split("/").pop();
+    const input = parsed.searchParams.get("input");
+    const key = `${method}?${input || ""}`;
+    requestedMethods.push(method);
+    const response = responses.get(key);
+
+    if (!response) {
+      throw new Error(`Unexpected request: ${key}`);
+    }
+
+    return response.clone();
+  };
+
+  const imported = await importWareraUserData(userId, fetchStub, {
+    apiToken: "wae_test_token",
+    importOptions: {
+      skills: false,
+      companies: true,
+      workers: false,
+      wages: false,
+    },
+  });
+
+  assert.deepEqual(imported.importOptions, {
+    skills: false,
+    companies: true,
+    workers: false,
+    wages: false,
+  });
+  assert.equal(imported.summary.companiesImported, 1);
+  assert.equal(imported.summary.workersImported, 0);
+  assert.equal(imported.summary.workerListsUnavailable, 0);
+  assert.equal(imported.summary.ownWageImported, false);
+  assert.equal(imported.ownWagePerPP, null);
+  assert.deepEqual(imported.companyConfigs[0], {
+    specialization: "iron",
+    aeLevel: 4,
+    productionBonusPct: 0,
+    manualActionsPer10h: 0,
+    workers: [],
+    wagePerPP: 0.135,
+  });
+  assert.equal(requestedMethods.includes("worker.getWorkers"), false);
+  assert.equal(requestedMethods.includes("transaction.getPaginatedTransactions"), false);
+});
+
+test("importWareraUserData preserves direct user ID rate limit errors", async () => {
+  await assert.rejects(
+    () => importWareraUserData("bbbbbbbbbbbbbbbbbbbbbbbb", async (url) => {
+      const method = new URL(url).pathname.split("/").pop();
+      if (method === "user.getUserLite") {
+        return jsonResponse({
+          error: {
+            message: "Too many requests",
+          },
+        }, 429);
+      }
+
+      throw new Error(`Unexpected request: ${method}`);
+    }),
+    (err) => {
+      assert.equal(err.status, 429);
+      assert.equal(err.method, "user.getUserLite");
+      assert.match(err.message, /Too many requests/);
+      return true;
+    },
+  );
+});
+
 test("live WarEra API token imports worker lists", {
-  skip: !getTestEnvValue("WARERA_API_TOKEN")
-    ? "Set WARERA_API_TOKEN in .env.test to run this live test."
-    : false,
+  skip: !shouldRunLiveWareraTests()
+    ? "Set WARERA_RUN_LIVE_TESTS=1 and WARERA_API_TOKEN to run this live test."
+    : (!getTestEnvValue("WARERA_API_TOKEN")
+      ? "Set WARERA_API_TOKEN in .env.test to run this live test."
+      : false),
 }, async () => {
   const imported = await importWareraUserData(getLiveTestUserId(), globalThis.fetch, {
     apiToken: getTestEnvValue("WARERA_API_TOKEN"),

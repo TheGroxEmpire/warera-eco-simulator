@@ -10,11 +10,15 @@ const DEFAULT_WORKER_PRODUCTION_PER_ACTION = 31;
 const DEFAULT_COMPANY_WAGE = 0.135;
 const WARERA_API_TIMEOUT_MS = 15000;
 const PARTY_BATCH_SIZE = 100;
+const WAGE_TRANSACTION_PAGE_SIZE = 25;
+const MAX_WAGE_TRANSACTION_PAGES = 4;
 const AMMO_OR_CONSTRUCTION_SPECIALIZATION_IDS = new Set([
   "limestone",
   "iron",
   "concrete",
   "steel",
+  "wood",
+  "paper",
   "lead",
   "light_ammo",
   "ammo",
@@ -134,6 +138,23 @@ function normalizeWareraApiToken(value) {
   return String(value || "").trim();
 }
 
+function normalizeEntityId(value) {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  return normalizeEntityId(value._id ?? value.id ?? value.userId);
+}
+
+function normalizeWage(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Number(parsed.toFixed(6)) : null;
+}
+
 function createWareraFetchWithApiToken(fetchImpl, apiToken) {
   const normalizedToken = normalizeWareraApiToken(apiToken);
   if (!normalizedToken) {
@@ -156,12 +177,27 @@ function normalizeProductionBonusOptions(options = {}) {
   };
 }
 
+function normalizeImportOptions(options = {}) {
+  const rawOptions = options?.importOptions && typeof options.importOptions === "object"
+    ? options.importOptions
+    : (options?.include && typeof options.include === "object" ? options.include : {});
+  const companies = rawOptions.companies !== false;
+
+  return {
+    skills: rawOptions.skills !== false,
+    companies,
+    workers: companies && rawOptions.workers !== false,
+    wages: rawOptions.wages !== false,
+  };
+}
+
 function normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions) {
   if (typeof fetchImplOrOptions === "function") {
     const apiToken = normalizeWareraApiToken(maybeOptions?.apiToken ?? maybeOptions?.wareraApiToken);
     return {
       fetchImpl: fetchImplOrOptions,
       productionBonusOptions: normalizeProductionBonusOptions(maybeOptions),
+      importOptions: normalizeImportOptions(maybeOptions),
       apiToken,
     };
   }
@@ -171,6 +207,7 @@ function normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions) {
   return {
     fetchImpl: typeof options.fetchImpl === "function" ? options.fetchImpl : globalThis.fetch,
     productionBonusOptions: normalizeProductionBonusOptions(options),
+    importOptions: normalizeImportOptions(options),
     apiToken,
   };
 }
@@ -671,8 +708,12 @@ async function resolveUserFromSearch(searchText, fetchImpl) {
         exactUsernameMatch: true,
         searchCandidateCount: 1,
       };
-    } catch {
-      // Fall back to text search in case the pasted value is not a valid live user ID.
+    } catch (err) {
+      if (Number(err?.status) === 404) {
+        throw new Error(`No WarEra user found for "${rawSearch}".`);
+      }
+
+      throw err;
     }
   }
 
@@ -767,10 +808,274 @@ async function fetchWorkerProfiles(workers, fetchImpl) {
   };
 }
 
+function getPaginatedItems(pageData) {
+  if (Array.isArray(pageData?.items)) {
+    return pageData.items;
+  }
+
+  if (Array.isArray(pageData?.transactions)) {
+    return pageData.transactions;
+  }
+
+  return Array.isArray(pageData) ? pageData : [];
+}
+
+async function fetchRecentWageTransactions(userId, fetchImpl) {
+  const transactions = [];
+  let cursor = null;
+
+  for (let page = 0; page < MAX_WAGE_TRANSACTION_PAGES; page += 1) {
+    const input = {
+      userId,
+      transactionType: "wage",
+      limit: WAGE_TRANSACTION_PAGE_SIZE,
+    };
+    if (cursor) {
+      input.cursor = cursor;
+    }
+
+    const pageData = await callWareraApi("transaction.getPaginatedTransactions", input, fetchImpl);
+    const items = getPaginatedItems(pageData);
+    transactions.push(...items);
+
+    if (!pageData?.nextCursor || items.length === 0) {
+      break;
+    }
+
+    cursor = pageData.nextCursor;
+  }
+
+  return transactions.sort((a, b) => {
+    const aMs = new Date(a?.createdAt || 0).getTime();
+    const bMs = new Date(b?.createdAt || 0).getTime();
+    return (Number.isFinite(bMs) ? bMs : 0) - (Number.isFinite(aMs) ? aMs : 0);
+  });
+}
+
+function getWageTransactionCounterpartIds(transaction, userId) {
+  const normalizedUserId = normalizeEntityId(userId).toLowerCase();
+  const sellerId = normalizeEntityId(transaction?.sellerId);
+  const buyerId = normalizeEntityId(transaction?.buyerId);
+  if (sellerId && buyerId) {
+    if (sellerId.toLowerCase() === normalizedUserId && buyerId.toLowerCase() !== normalizedUserId) {
+      return [buyerId];
+    }
+
+    if (buyerId.toLowerCase() === normalizedUserId) {
+      return [];
+    }
+  }
+
+  const fields = [
+    "sellerId",
+    "buyerId",
+    "seller",
+    "buyer",
+    "fromUser",
+    "toUser",
+    "from",
+    "to",
+    "sender",
+    "recipient",
+    "payer",
+    "payee",
+    "employer",
+    "user",
+  ];
+  const containers = [
+    transaction,
+    transaction?.data,
+    transaction?.metadata,
+    transaction?.payload,
+  ].filter((candidate) => candidate && typeof candidate === "object");
+
+  const ids = [];
+  for (const container of containers) {
+    for (const field of fields) {
+      const id = normalizeEntityId(container[field]);
+      if (id && id.toLowerCase() !== normalizedUserId && !ids.includes(id)) {
+        ids.push(id);
+      }
+    }
+  }
+
+  return ids;
+}
+
+function normalizeWorkerGroups(workerPayload) {
+  if (Array.isArray(workerPayload?.workersPerCompany)) {
+    return workerPayload.workersPerCompany
+      .map((group) => ({
+        company: group?.company || null,
+        workers: Array.isArray(group?.workers) ? group.workers : [],
+      }))
+      .filter((group) => group.workers.length > 0);
+  }
+
+  if (Array.isArray(workerPayload?.workers)) {
+    return [{
+      company: workerPayload?.company || null,
+      workers: workerPayload.workers,
+    }];
+  }
+
+  if (Array.isArray(workerPayload)) {
+    return [{
+      company: null,
+      workers: workerPayload,
+    }];
+  }
+
+  if (workerPayload && typeof workerPayload === "object" && normalizeEntityId(workerPayload.user)) {
+    return [{
+      company: null,
+      workers: [workerPayload],
+    }];
+  }
+
+  return [];
+}
+
+async function getCompanyInfoForWorker(workerRecord, groupCompany, fetchImpl) {
+  const companyId = normalizeEntityId(workerRecord?.company) || normalizeEntityId(groupCompany);
+  if (!companyId) {
+    return groupCompany || null;
+  }
+
+  try {
+    return await callWareraApi("company.getById", { companyId }, fetchImpl);
+  } catch {
+    return groupCompany || { _id: companyId };
+  }
+}
+
+async function findCurrentWorkerRecordForEmployer(employeeId, employerId, fetchImpl) {
+  if (!employeeId || !employerId || employeeId === employerId) {
+    return null;
+  }
+
+  const workerPayload = await callWareraApi("worker.getWorkers", { userId: employerId }, fetchImpl);
+  const groups = normalizeWorkerGroups(workerPayload);
+
+  for (const group of groups) {
+    for (const workerRecord of group.workers) {
+      if (normalizeEntityId(workerRecord?.user) !== employeeId) {
+        continue;
+      }
+
+      const workerEmployerId = normalizeEntityId(workerRecord?.employer);
+      if (workerEmployerId && workerEmployerId !== employerId) {
+        continue;
+      }
+
+      const wagePerPP = normalizeWage(workerRecord?.wage);
+      if (wagePerPP === null) {
+        continue;
+      }
+
+      const companyLite = await getCompanyInfoForWorker(workerRecord, group.company, fetchImpl);
+      const companyOwnerId = normalizeEntityId(companyLite?.user);
+      if (companyOwnerId && companyOwnerId === employeeId) {
+        continue;
+      }
+      if (companyOwnerId && companyOwnerId !== employerId) {
+        continue;
+      }
+
+      return {
+        wagePerPP,
+        employerId,
+        company: {
+          id: normalizeEntityId(companyLite) || normalizeEntityId(workerRecord?.company),
+          name: String(companyLite?.name || "").trim(),
+          ownerId: companyOwnerId || employerId,
+        },
+      };
+    }
+  }
+
+  return null;
+}
+
+async function fetchImportedOwnWage(userLite, fetchImpl, options = {}) {
+  const userId = normalizeEntityId(userLite?._id);
+  if (!userId || options?.apiTokenProvided !== true) {
+    return {
+      wagePerPP: null,
+      source: null,
+      wageTransactionsScanned: 0,
+      warnings: [],
+    };
+  }
+
+  let transactions = [];
+  try {
+    transactions = await fetchRecentWageTransactions(userId, fetchImpl);
+  } catch (err) {
+    const reasonText = getErrorMessage(err, "");
+    const warnings = [
+      isAuthError(err)
+        ? "Own wage was not imported because WarEra rejected the saved API token or it lacks transaction access. Check your token in section 1, WarEra API Token, then import again."
+        : `Own wage was not imported because recent wage transactions could not be loaded.${reasonText ? ` WarEra said: ${reasonText}.` : ""}`,
+    ];
+
+    return {
+      wagePerPP: null,
+      source: null,
+      wageTransactionsScanned: 0,
+      warnings,
+    };
+  }
+
+  const employerResultCache = new Map();
+  let wageTransactionsScanned = 0;
+
+  for (const transaction of transactions) {
+    wageTransactionsScanned += 1;
+    const employerIds = getWageTransactionCounterpartIds(transaction, userId);
+    for (const employerId of employerIds) {
+      if (!employerResultCache.has(employerId)) {
+        try {
+          employerResultCache.set(
+            employerId,
+            await findCurrentWorkerRecordForEmployer(userId, employerId, fetchImpl),
+          );
+        } catch {
+          employerResultCache.set(employerId, null);
+        }
+      }
+
+      const wageMatch = employerResultCache.get(employerId);
+      if (!wageMatch) {
+        continue;
+      }
+
+      return {
+        wagePerPP: wageMatch.wagePerPP,
+        source: {
+          ...wageMatch,
+          transactionId: normalizeEntityId(transaction),
+          transactionCreatedAt: typeof transaction?.createdAt === "string" ? transaction.createdAt : "",
+        },
+        wageTransactionsScanned,
+        warnings: [],
+      };
+    }
+  }
+
+  return {
+    wagePerPP: null,
+    source: null,
+    wageTransactionsScanned,
+    warnings: [],
+  };
+}
+
 async function fetchImportedCompanies(userLite, fetchImpl, options = {}) {
   const companyIds = await fetchAllCompanyIds(userLite._id, fetchImpl);
   const referenceData = await fetchImportReferenceData(fetchImpl);
   referenceData.productionBonusOptions = normalizeProductionBonusOptions(options);
+  const includeWorkers = options?.includeWorkers !== false;
   const warnings = [...referenceData.warnings];
   const companyConfigs = [];
   let workersImported = 0;
@@ -785,6 +1090,15 @@ async function fetchImportedCompanies(userLite, fetchImpl, options = {}) {
     const companyLite = await callWareraApi("company.getById", { companyId }, fetchImpl);
 
     if (!resolveMaterialIdFromItemCode(companyLite?.itemCode)) {
+      return {
+        companyLite,
+        workers: [],
+        workersUnavailable: false,
+        defaultWorkerCount: 0,
+      };
+    }
+
+    if (!includeWorkers) {
       return {
         companyLite,
         workers: [],
@@ -973,15 +1287,43 @@ export async function fetchMaxMaterialProductionBonuses(fetchImplOrOptions = glo
 }
 
 export async function importWareraUserData(searchText, fetchImplOrOptions = globalThis.fetch, maybeOptions = {}) {
-  const { fetchImpl, productionBonusOptions, apiToken } = normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions);
+  const {
+    fetchImpl,
+    productionBonusOptions,
+    importOptions,
+    apiToken,
+  } = normalizeFetchImplAndBonusOptions(fetchImplOrOptions, maybeOptions);
   const wareraFetchImpl = createWareraFetchWithApiToken(fetchImpl, apiToken);
   const { userLite, matchedBy, exactUsernameMatch, searchCandidateCount } = await resolveUserFromSearch(searchText, wareraFetchImpl);
-  const importedCompanies = await fetchImportedCompanies(userLite, wareraFetchImpl, {
-    ...productionBonusOptions,
-    apiTokenProvided: Boolean(apiToken),
-  });
+  const importedCompanies = importOptions.companies
+    ? await fetchImportedCompanies(userLite, wareraFetchImpl, {
+      ...productionBonusOptions,
+      apiTokenProvided: Boolean(apiToken),
+      includeWorkers: importOptions.workers,
+    })
+    : {
+      companyIds: [],
+      companyConfigs: [],
+      workersImported: 0,
+      workerProfilesMissing: 0,
+      workerListsUnavailable: 0,
+      defaultWorkersAdded: 0,
+      companiesSkipped: 0,
+      warnings: [],
+    };
+  const importedOwnWage = importOptions.wages
+    ? await fetchImportedOwnWage(userLite, wareraFetchImpl, {
+      apiTokenProvided: Boolean(apiToken),
+    })
+    : {
+      wagePerPP: null,
+      source: null,
+      wageTransactionsScanned: 0,
+      warnings: [],
+    };
 
   return {
+    importOptions,
     level: Math.max(1, Math.floor(Number(userLite?.leveling?.level) || 1)),
     alloc: {
       energy: getSkillLevel(userLite, "energy"),
@@ -996,6 +1338,8 @@ export async function importWareraUserData(searchText, fetchImplOrOptions = glob
       username: String(userLite?.username || "Unknown User"),
       avatarUrl: userLite?.avatarUrl || "",
     },
+    ownWagePerPP: importedOwnWage.wagePerPP,
+    ownWageSource: importedOwnWage.source,
     summary: {
       matchedBy,
       exactUsernameMatch,
@@ -1007,7 +1351,12 @@ export async function importWareraUserData(searchText, fetchImplOrOptions = glob
       workerProfilesMissing: importedCompanies.workerProfilesMissing,
       workerListsUnavailable: importedCompanies.workerListsUnavailable,
       defaultWorkersAdded: importedCompanies.defaultWorkersAdded,
+      ownWageImported: importedOwnWage.wagePerPP !== null,
+      wageTransactionsScanned: importedOwnWage.wageTransactionsScanned,
     },
-    warnings: importedCompanies.warnings,
+    warnings: [
+      ...importedCompanies.warnings,
+      ...importedOwnWage.warnings,
+    ],
   };
 }

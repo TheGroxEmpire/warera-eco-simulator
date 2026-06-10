@@ -23,7 +23,31 @@
 
     <section class="panel">
       <h2>1. Import User</h2>
-      <p class="hint">Search a WarEra username or paste a user ID to pull level, skills, owned companies, worker stats, company, and worker wages.</p>
+      <p class="hint">Search a WarEra username or paste a user ID to pull level, skills, owned companies, worker stats, company wages, and your own after-tax wage.</p>
+      <div class="import-options-group">
+        <div>
+          <h3>What to Import</h3>
+          <p class="hint">Choose which parts of the current simulator setup should be replaced.</p>
+        </div>
+        <div class="import-options" aria-label="What to import">
+          <label class="import-check">
+            <input id="import-option-skills" class="import-option" type="checkbox" data-import-part="skills" checked>
+            <span>Eco Skills</span>
+          </label>
+          <label class="import-check">
+            <input id="import-option-companies" class="import-option" type="checkbox" data-import-part="companies" checked>
+            <span>Companies</span>
+          </label>
+          <label class="import-check">
+            <input id="import-option-workers" class="import-option" type="checkbox" data-import-part="workers" checked>
+            <span>Workers</span>
+          </label>
+          <label class="import-check">
+            <input id="import-option-wages" class="import-option" type="checkbox" data-import-part="wages" checked>
+            <span>Your Own Wages</span>
+          </label>
+        </div>
+      </div>
       <form id="user-import-form" class="grid control-grid user-import-form">
         <label class="user-import-search">
           Username or User ID
@@ -34,7 +58,7 @@
       <div class="api-token-settings">
         <div class="api-token-copy">
           <h3>WarEra API Token</h3>
-          <p class="hint">Required for worker import. In WarEra, create or copy your token from Profile -> Settings, paste it here, then save before importing.</p>
+          <p class="hint">Required for worker and wage import. In WarEra, create or copy your token from Profile -> Settings, paste it here, then save before importing.</p>
           <p class="hint">The token is stored only in this browser and sent to WarEra as X-API-Key.</p>
         </div>
         <div class="api-token-controls">

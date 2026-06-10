@@ -192,7 +192,7 @@ function loadWareraApiTokenSetting() {
   if (token) {
     setApiTokenStatus("API token saved in this browser. WarEra requests will include it.", "success");
   } else {
-    setApiTokenStatus("No API token saved. Companies can import, but worker lists require a token.", "warning");
+    setApiTokenStatus("No API token saved. Companies can import, but workers and wages require a token.", "warning");
   }
 }
 
@@ -205,9 +205,9 @@ function saveWareraApiTokenFromInput() {
 
   if (token) {
     if (inputEl) inputEl.value = token;
-    setApiTokenStatus("API token saved. WarEra requests will include it; import again to include worker lists.", "success");
+    setApiTokenStatus("API token saved. WarEra requests will include it; import again to include workers and wages.", "success");
   } else {
-    setApiTokenStatus("API token cleared. Worker lists will not import until a token is saved.", "warning");
+    setApiTokenStatus("API token cleared. Workers and wages will not import until a token is saved.", "warning");
   }
 }
 
@@ -220,7 +220,7 @@ function clearWareraApiToken() {
     inputEl.value = "";
     inputEl.focus();
   }
-  setApiTokenStatus("API token cleared. Worker lists will not import until a token is saved.", "warning");
+  setApiTokenStatus("API token cleared. Workers and wages will not import until a token is saved.", "warning");
 }
 
 function normalizeSyncTimestamp(value) {
@@ -233,6 +233,48 @@ function normalizeSyncTimestamp(value) {
 
 function areAllMaterialValuesEqual(values, expectedValue) {
   return MATERIALS.every((material) => Math.abs((Number(values[material.id]) || 0) - expectedValue) < 0.000001);
+}
+
+function normalizeImportOptions(raw = {}) {
+  const options = raw && typeof raw === "object" ? raw : {};
+  const companies = options.companies !== false;
+  return {
+    skills: options.skills !== false,
+    companies,
+    workers: companies && options.workers !== false,
+    wages: options.wages !== false,
+  };
+}
+
+function getImportIncludesFromInputs() {
+  const include = {
+    skills: true,
+    companies: true,
+    workers: true,
+    wages: true,
+  };
+
+  document.querySelectorAll(".import-option").forEach((input) => {
+    if (!input?.dataset?.importPart) {
+      return;
+    }
+    include[input.dataset.importPart] = input.checked === true;
+  });
+
+  return normalizeImportOptions(include);
+}
+
+function joinList(parts) {
+  const values = parts.filter(Boolean);
+  if (values.length <= 1) {
+    return values[0] || "";
+  }
+
+  if (values.length === 2) {
+    return `${values[0]} and ${values[1]}`;
+  }
+
+  return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
 }
 
 function getSavedDataLabel(syncedAt) {
@@ -333,6 +375,9 @@ function normalizeImportedScenarioMeta(raw) {
 
   const user = raw.user && typeof raw.user === "object" ? raw.user : {};
   const summary = raw.summary && typeof raw.summary === "object" ? raw.summary : {};
+  const ownWageSource = raw.ownWageSource && typeof raw.ownWageSource === "object" ? raw.ownWageSource : null;
+  const ownWageCompany = ownWageSource?.company && typeof ownWageSource.company === "object" ? ownWageSource.company : {};
+  const ownWagePerPP = Number(raw.ownWagePerPP);
   const userId = String(user.id || "").trim();
   const username = String(user.username || "").trim();
 
@@ -345,11 +390,25 @@ function normalizeImportedScenarioMeta(raw) {
     statusMessage: typeof raw.statusMessage === "string" ? raw.statusMessage : "",
     statusTone: raw.statusTone === "success" || raw.statusTone === "error" ? raw.statusTone : "default",
     level: Math.max(1, Math.floor(Number(raw.level) || 1)),
+    importOptions: normalizeImportOptions(raw.importOptions),
     user: {
       id: userId,
       username: username || "Unknown User",
       avatarUrl: typeof user.avatarUrl === "string" ? user.avatarUrl : "",
     },
+    ownWagePerPP: Number.isFinite(ownWagePerPP) && ownWagePerPP > 0 ? ownWagePerPP : null,
+    ownWageSource: ownWageSource
+      ? {
+        employerId: String(ownWageSource.employerId || "").trim(),
+        transactionId: String(ownWageSource.transactionId || "").trim(),
+        transactionCreatedAt: String(ownWageSource.transactionCreatedAt || "").trim(),
+        company: {
+          id: String(ownWageCompany.id || "").trim(),
+          name: String(ownWageCompany.name || "").trim(),
+          ownerId: String(ownWageCompany.ownerId || "").trim(),
+        },
+      }
+      : null,
     summary: {
       companiesFound: Math.max(0, Math.floor(Number(summary.companiesFound) || 0)),
       companiesImported: Math.max(0, Math.floor(Number(summary.companiesImported) || 0)),
@@ -358,6 +417,8 @@ function normalizeImportedScenarioMeta(raw) {
       workerProfilesMissing: Math.max(0, Math.floor(Number(summary.workerProfilesMissing) || 0)),
       workerListsUnavailable: Math.max(0, Math.floor(Number(summary.workerListsUnavailable) || 0)),
       defaultWorkersAdded: Math.max(0, Math.floor(Number(summary.defaultWorkersAdded) || 0)),
+      ownWageImported: summary.ownWageImported === true,
+      wageTransactionsScanned: Math.max(0, Math.floor(Number(summary.wageTransactionsScanned) || 0)),
       matchedBy: summary.matchedBy === "userId" ? "userId" : "search",
       exactUsernameMatch: summary.exactUsernameMatch === true,
       searchCandidateCount: Math.max(0, Math.floor(Number(summary.searchCandidateCount) || 0)),
@@ -916,9 +977,27 @@ function renderUserImportSummary(imported) {
   const summaryTextEl = document.createElement("p");
   summaryTextEl.className = "hint";
   const defaultWorkerText = imported.summary.defaultWorkersAdded > 0
-    ? ` | Default workers added: ${imported.summary.defaultWorkersAdded}`
+    ? `, default workers added: ${imported.summary.defaultWorkersAdded}`
     : "";
-  summaryTextEl.textContent = `Level ${imported.level} | Companies imported: ${imported.summary.companiesImported}/${imported.summary.companiesFound} | Workers imported: ${imported.summary.workersImported}${defaultWorkerText}`;
+  const ownWageText = imported.importOptions.wages && imported.summary.ownWageImported && Number.isFinite(Number(imported.ownWagePerPP))
+    ? `Own wage: ${fmt(imported.ownWagePerPP)}/PP`
+    : "";
+  const summaryParts = [];
+  if (imported.importOptions.skills) {
+    summaryParts.push(`Level ${imported.level}`);
+  }
+  if (imported.importOptions.companies) {
+    summaryParts.push(`Companies imported: ${imported.summary.companiesImported}/${imported.summary.companiesFound}`);
+    summaryParts.push(imported.importOptions.workers
+      ? `Workers imported: ${imported.summary.workersImported}${defaultWorkerText}`
+      : "Workers skipped");
+  }
+  if (ownWageText) {
+    summaryParts.push(ownWageText);
+  }
+  summaryTextEl.textContent = summaryParts.length > 0
+    ? summaryParts.join(" | ")
+    : "No simulator fields changed";
 
   detailsEl.append(nameEl, idEl, summaryTextEl);
 
@@ -948,19 +1027,35 @@ async function importUserFromApi() {
   setUserImportStatus("Looking up WarEra user data and building simulator state...");
 
   try {
+    const importOptions = getImportIncludesFromInputs();
     const ignoreDepositBonuses = shouldIgnoreDepositBonuses();
     const productionBonusSourceLabel = ignoreDepositBonuses
       ? "country and ruling party data"
       : "country, active deposit, and ruling party data";
     const apiToken = getWareraApiTokenForWareraRequests();
-    const imported = await importWareraUserData(searchInput.value, globalThis.fetch, { ignoreDepositBonuses, apiToken });
+    const imported = await importWareraUserData(searchInput.value, globalThis.fetch, { ignoreDepositBonuses, apiToken, importOptions });
     const workerStatsLabel = imported.summary.workerListsUnavailable > 0 ? "available worker stats" : "worker stats";
-    const successMessagePrefix = `Imported ${imported.user.username}. Skills, level, companies, ${workerStatsLabel}, company production bonuses from ${productionBonusSourceLabel}, company wages, and maximum material production bonuses were refreshed. Your own wage stays manual.`;
-
-    document.getElementById("level").value = String(imported.level);
-    setAllocationsToInputs(imported.alloc);
-    setCompanyConfigs(imported.companyConfigs, {}, { allowEmpty: true });
-    setEntrePlanSlotsState([]);
+    const ownWageImported = importOptions.wages && imported.summary.ownWageImported && Number.isFinite(Number(imported.ownWagePerPP));
+    const refreshedParts = [];
+    if (importOptions.skills) {
+      refreshedParts.push("skills and level");
+      document.getElementById("level").value = String(imported.level);
+      setAllocationsToInputs(imported.alloc);
+    }
+    if (importOptions.companies) {
+      refreshedParts.push(importOptions.workers
+        ? `companies, ${workerStatsLabel}, company production bonuses from ${productionBonusSourceLabel}, and company wages`
+        : `companies and company production bonuses from ${productionBonusSourceLabel}`);
+      setCompanyConfigs(imported.companyConfigs, {}, { allowEmpty: true });
+      setEntrePlanSlotsState([]);
+    }
+    if (ownWageImported) {
+      refreshedParts.push("own wage");
+      document.getElementById("own-wage").value = String(imported.ownWagePerPP);
+    }
+    const successMessagePrefix = refreshedParts.length > 0
+      ? `Imported ${imported.user.username}. ${joinList(refreshedParts)} ${refreshedParts.length === 1 ? "was" : "were"} refreshed.`
+      : `Matched ${imported.user.username}. No import options were selected, so simulator values were not changed.`;
 
     const searchNote = imported.summary.matchedBy === "search" && imported.summary.searchCandidateCount > 1 && !imported.summary.exactUsernameMatch
       ? ` Selected the first of ${imported.summary.searchCandidateCount} search matches.`
@@ -976,7 +1071,12 @@ async function importUserFromApi() {
     const privateWorkerListNote = imported.summary.workerListsUnavailable > 0
       ? ` Worker lists were private for ${imported.summary.workerListsUnavailable} ${pluralize(imported.summary.workerListsUnavailable, "company")}; ${defaultWorkersAdded > 0 ? `${defaultWorkersAdded} default ${pluralize(defaultWorkersAdded, "worker")} ${defaultWorkerVerb} added from public worker counts.` : "those companies were imported without workers."}`
       : "";
-    const successMessage = `${successMessagePrefix}${searchNote}${skippedNote}${workerFallbackNote}${privateWorkerListNote}`;
+    const ownWageNote = !importOptions.wages
+      ? ""
+      : ownWageImported
+      ? ` Own wage set to ${fmt(imported.ownWagePerPP)}/PP after tax${imported.ownWageSource?.company?.name ? ` from ${imported.ownWageSource.company.name}` : ""}.`
+      : " Own wage was not changed.";
+    const successMessage = `${successMessagePrefix}${searchNote}${skippedNote}${workerFallbackNote}${privateWorkerListNote}${ownWageNote}`;
 
     applyImportedScenarioMeta({
       ...imported,
@@ -984,10 +1084,14 @@ async function importUserFromApi() {
       statusMessage: successMessage,
       statusTone: "success",
     });
-    renderCompanyEditor();
+    if (importOptions.companies) {
+      renderCompanyEditor();
+    }
     
-    // Sync production bonuses after importing profile for consistency
-    await syncProductionBonusesFromApi();
+    if (importOptions.companies) {
+      // Sync production bonuses after importing profile for consistency.
+      await syncProductionBonusesFromApi();
+    }
     
     rerenderFromCurrentState();
 
@@ -1544,6 +1648,24 @@ function bindApiTokenEvents() {
   document.getElementById("warera-api-token-clear-btn")?.addEventListener("click", clearWareraApiToken);
 }
 
+function syncImportOptionControls() {
+  const companiesInput = document.getElementById("import-option-companies");
+  const workersInput = document.getElementById("import-option-workers");
+  if (!companiesInput || !workersInput) {
+    return;
+  }
+
+  workersInput.disabled = companiesInput.checked !== true;
+  if (workersInput.disabled) {
+    workersInput.checked = false;
+  }
+}
+
+function bindImportOptionEvents() {
+  document.getElementById("import-option-companies")?.addEventListener("change", syncImportOptionControls);
+  syncImportOptionControls();
+}
+
 function bindExportEvents() {
   document.getElementById("share-config-btn")?.addEventListener("click", () => openExportModal("config"));
   document.getElementById("export-war-planner-btn")?.addEventListener("click", () => openExportModal("planner"));
@@ -1592,6 +1714,7 @@ async function init() {
   applySnapshotToInputs(compareState.slots[compareState.active], false);
   bindEvents();
   bindApiTokenEvents();
+  bindImportOptionEvents();
   bindExportEvents();
 
   rerenderFromCurrentState();
