@@ -980,7 +980,7 @@ function renderUserImportSummary(imported) {
     ? `, default workers added: ${imported.summary.defaultWorkersAdded}`
     : "";
   const ownWageText = imported.importOptions.wages && imported.summary.ownWageImported && Number.isFinite(Number(imported.ownWagePerPP))
-    ? `Own wage: ${fmt(imported.ownWagePerPP)}/PP`
+    ? `Own wage: ${fmt(imported.ownWagePerPP, 3)}/PP`
     : "";
   const summaryParts = [];
   if (imported.importOptions.skills) {
@@ -1074,7 +1074,7 @@ async function importUserFromApi() {
     const ownWageNote = !importOptions.wages
       ? ""
       : ownWageImported
-      ? ` Own wage set to ${fmt(imported.ownWagePerPP)}/PP after tax${imported.ownWageSource?.company?.name ? ` from ${imported.ownWageSource.company.name}` : ""}.`
+      ? ` Own wage set to ${fmt(imported.ownWagePerPP, 3)}/PP after tax${imported.ownWageSource?.company?.name ? ` from ${imported.ownWageSource.company.name}` : ""}.`
       : " Own wage was not changed.";
     const successMessage = `${successMessagePrefix}${searchNote}${skippedNote}${workerFallbackNote}${privateWorkerListNote}${ownWageNote}`;
 

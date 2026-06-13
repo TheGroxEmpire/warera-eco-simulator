@@ -150,9 +150,10 @@ function normalizeEntityId(value) {
   return normalizeEntityId(value._id ?? value.id ?? value.userId);
 }
 
-function normalizeWage(value) {
+function normalizeWage(value, digits = 6) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Number(parsed.toFixed(6)) : null;
+  const normalizedDigits = clamp(Math.floor(Number(digits) || 0), 0, 6);
+  return Number.isFinite(parsed) && parsed > 0 ? Number(parsed.toFixed(normalizedDigits)) : null;
 }
 
 function createWareraFetchWithApiToken(fetchImpl, apiToken) {
@@ -949,6 +950,36 @@ async function getCompanyInfoForWorker(workerRecord, groupCompany, fetchImpl) {
   }
 }
 
+function normalizeTaxPercent(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clamp(parsed, 0, 100) : 0;
+}
+
+function applyIncomeTaxToWage(wagePerPP, incomeTaxPct) {
+  const grossWage = normalizeWage(wagePerPP);
+  if (grossWage === null) {
+    return null;
+  }
+
+  return normalizeWage(grossWage * (1 - normalizeTaxPercent(incomeTaxPct) / 100), 3);
+}
+
+async function getCompanyIncomeTaxPct(companyLite, fetchImpl) {
+  const regionId = normalizeEntityId(companyLite?.region);
+  if (!regionId) {
+    return 0;
+  }
+
+  const region = await callWareraApi("region.getById", { regionId }, fetchImpl);
+  const countryId = normalizeEntityId(region?.country);
+  if (!countryId) {
+    return 0;
+  }
+
+  const country = await callWareraApi("country.getCountryById", { countryId }, fetchImpl);
+  return normalizeTaxPercent(country?.taxes?.income);
+}
+
 async function findCurrentWorkerRecordForEmployer(employeeId, employerId, fetchImpl) {
   if (!employeeId || !employerId || employeeId === employerId) {
     return null;
@@ -968,8 +999,8 @@ async function findCurrentWorkerRecordForEmployer(employeeId, employerId, fetchI
         continue;
       }
 
-      const wagePerPP = normalizeWage(workerRecord?.wage);
-      if (wagePerPP === null) {
+      const grossWagePerPP = normalizeWage(workerRecord?.wage);
+      if (grossWagePerPP === null) {
         continue;
       }
 
@@ -981,9 +1012,16 @@ async function findCurrentWorkerRecordForEmployer(employeeId, employerId, fetchI
       if (companyOwnerId && companyOwnerId !== employerId) {
         continue;
       }
+      const incomeTaxPct = await getCompanyIncomeTaxPct(companyLite, fetchImpl);
+      const wagePerPP = applyIncomeTaxToWage(grossWagePerPP, incomeTaxPct);
+      if (wagePerPP === null) {
+        continue;
+      }
 
       return {
         wagePerPP,
+        grossWagePerPP,
+        incomeTaxPct,
         employerId,
         company: {
           id: normalizeEntityId(companyLite) || normalizeEntityId(workerRecord?.company),

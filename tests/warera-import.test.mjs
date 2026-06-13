@@ -655,6 +655,24 @@ test("importWareraUserData sends a saved API token as X-API-Key", async () => {
         },
       },
     })],
+    [`region.getById?{"regionId":"region-outside"}`, jsonResponse({
+      result: {
+        data: {
+          _id: "region-outside",
+          country: "country-outside",
+        },
+      },
+    })],
+    [`country.getCountryById?{"countryId":"country-outside"}`, jsonResponse({
+      result: {
+        data: {
+          _id: "country-outside",
+          taxes: {
+            income: 11,
+          },
+        },
+      },
+    })],
     [`company.getCompanies?{"userId":"${userId}","perPage":100}`, jsonResponse({
       result: {
         data: {
@@ -735,7 +753,9 @@ test("importWareraUserData sends a saved API token as X-API-Key", async () => {
   assert.equal(imported.summary.workerListsUnavailable, 0);
   assert.equal(imported.summary.ownWageImported, true);
   assert.equal(imported.summary.wageTransactionsScanned, 1);
-  assert.equal(imported.ownWagePerPP, 0.106);
+  assert.equal(imported.ownWagePerPP, 0.094);
+  assert.equal(imported.ownWageSource.grossWagePerPP, 0.106);
+  assert.equal(imported.ownWageSource.incomeTaxPct, 11);
   assert.deepEqual(imported.ownWageSource.company, {
     id: outsideCompanyId,
     name: "Outside Co",
