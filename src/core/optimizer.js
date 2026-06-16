@@ -6,6 +6,7 @@ import {
 } from "../config/constants.js?v=20260330-09";
 import {
   getActiveCompaniesForAlloc,
+  getEntrepreneurshipSlotCount,
   getStatsForAlloc,
   levelCost,
   objectiveScore,
@@ -39,7 +40,7 @@ function applySpecializationsToCompanyConfigs(companyConfigs, specializations = 
 export function exactOptimizeEntrePlanForAlloc(alloc, config) {
   const stats = getStatsForAlloc(alloc);
   const activeCompanies = getActiveCompaniesForAlloc(alloc, config);
-  const capPer10h = Math.max(0, Math.floor(stats.entrepreneurship / 10));
+  const capPer10h = getEntrepreneurshipSlotCount(stats);
   const bestPlan = {};
   for (const company of activeCompanies) {
     bestPlan[company.id] = 0;
@@ -94,7 +95,7 @@ export function exactOptimizeEntrePlanForAlloc(alloc, config) {
 export function heuristicOptimizeEntrePlanForAlloc(alloc, config) {
   const stats = getStatsForAlloc(alloc);
   const activeCompanies = getActiveCompaniesForAlloc(alloc, config);
-  const capPer10h = Math.max(0, Math.floor(stats.entrepreneurship / 10));
+  const capPer10h = getEntrepreneurshipSlotCount(stats);
   const bestPlan = {};
 
   for (const company of activeCompanies) {

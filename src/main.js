@@ -12,8 +12,10 @@ import {
 } from "./config/constants.js?v=20260330-09";
 import {
   buildEntrePlanSlotsFromPlan,
+  getActionRatePer10h,
   getActiveCompaniesForAlloc,
   getApiKeysForMaterial,
+  getEntrepreneurshipSlotCount,
   getStatsForAlloc,
   sanitizeEntrePlanSlots,
   simulate,
@@ -444,7 +446,7 @@ function normalizeSnapshot(raw) {
   const hasLegacyEmployeePPDay = config.employeePPDay !== undefined && config.employeePPDay !== null && config.employeePPDay !== "";
   const legacyEmployeePPDay = Math.max(0, Number(config.employeePPDay) || 0);
   const employeeEnergy10h = Math.max(0, Number(config.employeeEnergy10h ?? 100) || 0);
-  const defaultActionsPerDay = Math.max(1, Math.floor(employeeEnergy10h / 10) * CYCLES_PER_DAY);
+  const defaultActionsPerDay = Math.max(1, getActionRatePer10h(employeeEnergy10h) * CYCLES_PER_DAY);
   const employeeProductionFromConfig = config.employeeProductionCapacity ?? config.employeeProductionPerAction;
   const employeeProductionPerAction = employeeProductionFromConfig !== undefined && employeeProductionFromConfig !== null && employeeProductionFromConfig !== ""
     ? Math.max(0, Number(employeeProductionFromConfig) || 0)
@@ -1171,7 +1173,7 @@ function loadState() {
     const hasLegacyEmployeePPDay = c.employeePPDay !== undefined && c.employeePPDay !== null && c.employeePPDay !== "";
     const legacyEmployeePPDay = Math.max(0, Number(c.employeePPDay) || 0);
     const legacyEmployeeEnergy10h = Math.max(0, Number(c.employeeEnergy10h ?? 100) || 0);
-    const legacyActionsPerDay = Math.max(1, Math.floor(legacyEmployeeEnergy10h / 10) * CYCLES_PER_DAY);
+    const legacyActionsPerDay = Math.max(1, getActionRatePer10h(legacyEmployeeEnergy10h) * CYCLES_PER_DAY);
     const legacyEmployeeProductionValue = c.employeeProductionCapacity ?? c.employeeProductionPerAction;
     const legacyEmployeeProductionPerAction = legacyEmployeeProductionValue !== undefined && legacyEmployeeProductionValue !== null && legacyEmployeeProductionValue !== ""
       ? Math.max(0, Number(legacyEmployeeProductionValue) || 0)
@@ -1224,7 +1226,7 @@ function loadState() {
         configuredCompanies: getCompanyConfigsMutable().length,
         companyConfigs: getCompanyConfigs(),
       });
-      const capNow = Math.max(0, Math.floor(statsNow.entrepreneurship / 10));
+      const capNow = getEntrepreneurshipSlotCount(statsNow);
       const derivedSlots = [];
       for (const company of activeNow) {
         const count = Math.max(0, Math.floor(Number(company.manualActionsPer10h) || 0));

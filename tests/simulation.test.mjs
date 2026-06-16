@@ -25,6 +25,10 @@ function createCompany(id, specialization) {
   };
 }
 
+function assertApprox(actual, expected, epsilon = 1e-9) {
+  assert.ok(Math.abs(actual - expected) <= epsilon, `Expected ${actual} to be within ${epsilon} of ${expected}`);
+}
+
 function createBaseConfig() {
   const companyConfigs = [createCompany(1, "iron"), createCompany(2, "steel")];
   return {
@@ -98,6 +102,32 @@ test("simulate reports skipped entrepreneurship plan slots", () => {
   assert.equal(cap, 5);
   assert.equal(result.entreActionsSkippedPer10h, 4);
   assert.equal(result.entreActionsUnassignedPer10h, 4);
+});
+
+test("entrepreneurship five-point bar gains increase fractional regen profit", () => {
+  const config = createBaseConfig();
+  config.entrePlanSlots = [1, 1, 1, 1, 1];
+  const level4Alloc = {
+    energy: 0,
+    entrepreneurship: 4,
+    production: 0,
+    companies: 0,
+    management: 0,
+  };
+  const level5Alloc = {
+    ...level4Alloc,
+    entrepreneurship: 5,
+  };
+
+  const level4Result = simulate(level4Alloc, config);
+  const level5Result = simulate(level5Alloc, config);
+
+  assert.equal(level4Result.stats.entrepreneurship, 50);
+  assert.equal(level5Result.stats.entrepreneurship, 55);
+  assertApprox(level4Result.entreActionsCapPer10h, 5);
+  assertApprox(level5Result.entreActionsCapPer10h, 5.5);
+  assertApprox(level5Result.entreActionsEffectivePer10h, 5.5);
+  assert.ok(level5Result.netProfitDay > level4Result.netProfitDay);
 });
 
 test("optimizeAllocationAndPlan keeps companies and management fixed during skill optimization", () => {

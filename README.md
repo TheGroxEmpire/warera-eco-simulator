@@ -176,12 +176,12 @@ These assumptions are implemented:
    - Production bonus `%` => multiplier `1 + (bonus / 100)`.
    - Fidelity `%` => multiplier `1 + (fidelity / 100)`, capped at `10%`.
 7. Work actions/day:
-   - `floor(EnergyBar / 10) * 2.4 * workUsage%`
+   - `(EnergyBar / 10) * 2.4 * workUsage%`
 8. Entrepreneurship actions/day:
-   - `floor(EntrepreneurshipBar / 10) * 2.4 * entrepreneurshipUsage%`
+   - `(EntrepreneurshipBar / 10) * 2.4 * entrepreneurshipUsage%`
 9. Each worker has independent settings for `Energy / 10h`, `Production / Action`, and `Fidelity`.
 10. Employee actions/day each worker:
-   - `floor(EmployeeEnergy10h / 10) * 2.4`
+   - `(EmployeeEnergy10h / 10) * 2.4`
 11. Raw employee PP/day each worker:
    - `employeeActionsPerDayEach * employeeProductionPerAction`
 12. Work wage and employee payroll are calculated from raw PP (before company bonus/fidelity).
@@ -189,11 +189,12 @@ These assumptions are implemented:
 14. Company PP/day:
    - `manual company PP + (sum of each company's AE PP) + employee PP`
 15. Entrepreneurship cap per 10h:
-   - `floor(EntrepreneurshipBar / 10)`
+   - `EntrepreneurshipBar / 10`
 16. Entrepreneurship planning:
    - each action slot represents one self-work action in a 10h cycle
    - each slot chooses one active target company (or skip)
-   - number of slots follows your current cap `floor(EntrepreneurshipBar / 10)`
+   - visible whole target slots follow `floor(EntrepreneurshipBar / 10)`
+   - when the Entrepreneurship bar is not divisible by 10, fractional regen is distributed across the selected slots
 17. Entrepreneurship plan optimization:
    - when enabled in optimizer, plan actions are optimized for selected objective
    - plan-only optimization uses exact discrete search

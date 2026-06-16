@@ -111,6 +111,15 @@ export function maxAffordableLevel(points) {
   return Math.floor((Math.sqrt(1 + (8 * points)) - 1) / 2);
 }
 
+export function getActionRatePer10h(energyBar) {
+  const rate = Number(energyBar) / 10;
+  return Number.isFinite(rate) ? Math.max(0, rate) : 0;
+}
+
+export function getEntrepreneurshipSlotCount(stats) {
+  return Math.floor(getActionRatePer10h(stats?.entrepreneurship));
+}
+
 export function createEmptyAllocation() {
   return {
     energy: 0,
@@ -212,7 +221,9 @@ export function getActiveCompaniesForAlloc(alloc, config) {
 }
 
 export function buildEntrepreneurshipPlan(activeCompanies, allCompanyConfigs, stats, config, planOverrideByCompanyId = null) {
-  const capPer10h = Math.max(0, Math.floor(stats.entrepreneurship / 10));
+  const actionCapacityPer10h = getActionRatePer10h(stats.entrepreneurship);
+  const slotCount = getEntrepreneurshipSlotCount(stats);
+  const actionsPerSlot = slotCount > 0 ? actionCapacityPer10h / slotCount : 0;
   const requestedByCompanyId = {};
   const effectiveByCompanyId = {};
 
@@ -221,9 +232,9 @@ export function buildEntrepreneurshipPlan(activeCompanies, allCompanyConfigs, st
     effectiveByCompanyId[company.id] = 0;
   }
 
-  if (capPer10h <= 0 || activeCompanies.length === 0) {
+  if (slotCount <= 0 || activeCompanies.length === 0) {
     return {
-      capPer10h,
+      capPer10h: actionCapacityPer10h,
       requestedTotalPer10h: 0,
       requestedActiveTotalPer10h: 0,
       effectiveTotalPer10h: 0,
@@ -239,75 +250,83 @@ export function buildEntrepreneurshipPlan(activeCompanies, allCompanyConfigs, st
   const activeIds = new Set(activeCompanies.map((company) => company.id));
 
   if (planOverrideByCompanyId) {
-    let requestedActiveTotalPer10h = 0;
-    let effectiveTotalPer10h = 0;
-    let requestedInactiveCompaniesPer10h = 0;
-    let requestedTotalPer10h = 0;
+    let requestedActiveTotalSlots = 0;
+    let effectiveTotalSlots = 0;
+    let requestedInactiveCompanySlots = 0;
+    let requestedTotalSlots = 0;
 
     for (const company of allCompanyConfigs) {
       const requested = Math.max(0, Math.floor(Number(planOverrideByCompanyId[company.id]) || 0));
-      requestedTotalPer10h += requested;
+      requestedTotalSlots += requested;
       if (!activeIds.has(company.id)) {
-        requestedInactiveCompaniesPer10h += requested;
+        requestedInactiveCompanySlots += requested;
       }
     }
 
-    let remaining = capPer10h;
+    let remaining = slotCount;
     for (const company of activeCompanies) {
       const requested = Math.max(0, Math.floor(Number(planOverrideByCompanyId[company.id]) || 0));
-      requestedByCompanyId[company.id] = requested;
-      requestedActiveTotalPer10h += requested;
+      requestedByCompanyId[company.id] = requested * actionsPerSlot;
+      requestedActiveTotalSlots += requested;
 
       const effective = Math.min(requested, remaining);
-      effectiveByCompanyId[company.id] = effective;
-      effectiveTotalPer10h += effective;
+      effectiveByCompanyId[company.id] = effective * actionsPerSlot;
+      effectiveTotalSlots += effective;
       remaining -= effective;
     }
 
+    const requestedActiveTotalPer10h = requestedActiveTotalSlots * actionsPerSlot;
+    const effectiveTotalPer10h = effectiveTotalSlots * actionsPerSlot;
+    const requestedInactiveCompaniesPer10h = requestedInactiveCompanySlots * actionsPerSlot;
+
     return {
-      capPer10h,
-      requestedTotalPer10h: requestedActiveTotalPer10h + requestedInactiveCompaniesPer10h,
+      capPer10h: actionCapacityPer10h,
+      requestedTotalPer10h: requestedTotalSlots * actionsPerSlot,
       requestedActiveTotalPer10h,
       effectiveTotalPer10h,
       overCapPer10h: Math.max(0, requestedActiveTotalPer10h - effectiveTotalPer10h),
-      skippedPer10h: Math.max(0, capPer10h - requestedTotalPer10h),
-      unassignedPer10h: Math.max(0, capPer10h - effectiveTotalPer10h),
+      skippedPer10h: Math.max(0, slotCount - requestedTotalSlots) * actionsPerSlot,
+      unassignedPer10h: Math.max(0, actionCapacityPer10h - effectiveTotalPer10h),
       requestedInactiveCompaniesPer10h,
       requestedByCompanyId,
       effectiveByCompanyId,
     };
   }
 
-  const rawSlots = sanitizeEntrePlanSlots(config.entrePlanSlots).slice(0, capPer10h);
-  let requestedActiveTotalPer10h = 0;
-  let requestedInactiveCompaniesPer10h = 0;
-  let effectiveTotalPer10h = 0;
-  let skippedPer10h = Math.max(0, capPer10h - rawSlots.length);
+  const rawSlots = sanitizeEntrePlanSlots(config.entrePlanSlots).slice(0, slotCount);
+  let requestedActiveSlots = 0;
+  let requestedInactiveCompanySlots = 0;
+  let effectiveSlots = 0;
+  let skippedSlots = Math.max(0, slotCount - rawSlots.length);
 
   for (const slotCompanyId of rawSlots) {
     if (!slotCompanyId) {
-      skippedPer10h += 1;
+      skippedSlots += 1;
       continue;
     }
 
     if (activeIds.has(slotCompanyId)) {
-      requestedByCompanyId[slotCompanyId] += 1;
-      effectiveByCompanyId[slotCompanyId] += 1;
-      requestedActiveTotalPer10h += 1;
-      effectiveTotalPer10h += 1;
+      requestedByCompanyId[slotCompanyId] += actionsPerSlot;
+      effectiveByCompanyId[slotCompanyId] += actionsPerSlot;
+      requestedActiveSlots += 1;
+      effectiveSlots += 1;
     } else {
-      requestedInactiveCompaniesPer10h += 1;
+      requestedInactiveCompanySlots += 1;
     }
   }
 
+  const requestedActiveTotalPer10h = requestedActiveSlots * actionsPerSlot;
+  const requestedInactiveCompaniesPer10h = requestedInactiveCompanySlots * actionsPerSlot;
+  const effectiveTotalPer10h = effectiveSlots * actionsPerSlot;
+
   return {
-    capPer10h,
+    capPer10h: actionCapacityPer10h,
     requestedTotalPer10h: requestedActiveTotalPer10h + requestedInactiveCompaniesPer10h,
     requestedActiveTotalPer10h,
     effectiveTotalPer10h,
     overCapPer10h: 0,
-    skippedPer10h,
-    unassignedPer10h: Math.max(0, capPer10h - effectiveTotalPer10h),
+    skippedPer10h: skippedSlots * actionsPerSlot,
+    unassignedPer10h: Math.max(0, actionCapacityPer10h - effectiveTotalPer10h),
     requestedInactiveCompaniesPer10h,
     requestedByCompanyId,
     effectiveByCompanyId,
@@ -317,7 +336,7 @@ export function buildEntrepreneurshipPlan(activeCompanies, allCompanyConfigs, st
 export function buildEntrePlanSlotsFromPlan(planByCompanyId, alloc, config) {
   const stats = getStatsForAlloc(alloc);
   const activeCompanies = getActiveCompaniesForAlloc(alloc, config);
-  const capPer10h = Math.max(0, Math.floor(stats.entrepreneurship / 10));
+  const capPer10h = getEntrepreneurshipSlotCount(stats);
   const slots = [];
 
   for (const company of activeCompanies) {
@@ -364,7 +383,7 @@ export function simulate(alloc, config) {
   const inactiveCompanies = Math.max(0, configuredCompanies - companiesActive);
   const activeCompanies = config.companyConfigs.slice(0, companiesActive);
 
-  const energyActionsPerDay = Math.floor(stats.energy / 10) * CYCLES_PER_DAY * config.workUsagePct;
+  const energyActionsPerDay = getActionRatePer10h(stats.energy) * CYCLES_PER_DAY * config.workUsagePct;
   const entrepreneurshipPlan = buildEntrepreneurshipPlan(
     activeCompanies,
     config.companyConfigs,
@@ -425,7 +444,7 @@ export function simulate(alloc, config) {
     let workerPayrollCostDay = 0;
 
     for (const worker of activeWorkers) {
-      const actionsPerDay = Math.floor(worker.energyPer10h / 10) * CYCLES_PER_DAY;
+      const actionsPerDay = getActionRatePer10h(worker.energyPer10h) * CYCLES_PER_DAY;
       const rawPPDay = actionsPerDay * worker.productionPerAction;
       workerRawPPDay += rawPPDay;
       workerPPDay += rawPPDay

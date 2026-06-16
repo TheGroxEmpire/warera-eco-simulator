@@ -1,5 +1,10 @@
 import { AE_RATES, MATERIAL_MAP, MATERIALS } from "../config/constants.js?v=20260330-09";
-import { getActiveCompaniesForAlloc, getItemImagePath, getStatsForAlloc } from "../core/simulation.js?v=20260330-09";
+import {
+  getActiveCompaniesForAlloc,
+  getEntrepreneurshipSlotCount,
+  getItemImagePath,
+  getStatsForAlloc,
+} from "../core/simulation.js?v=20260330-09";
 
 export function createEditorUI({
   getConfigFromInputs,
@@ -53,7 +58,7 @@ export function createEditorUI({
 
   function syncEntrePlanSlotsForCurrentContext(config, alloc) {
     const stats = getStatsForAlloc(alloc);
-    const capPer10h = Math.max(0, Math.floor(stats.entrepreneurship / 10));
+    const capPer10h = getEntrepreneurshipSlotCount(stats);
     const activeCompanies = getActiveCompaniesForAlloc(alloc, config);
     const activeIds = new Set(activeCompanies.map((company) => company.id));
     const currentSlots = getEntrePlanSlotsState();
